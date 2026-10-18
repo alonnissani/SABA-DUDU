@@ -1,0 +1,141 @@
+// טיפוסים משותפים לצד הלקוח ולצד השרת.
+
+export type ItemKind = 'photo' | 'video' | 'audio' | 'story' | 'document';
+export type Role = 'admin' | 'member';
+export type StoryType = 'family' | 'personal' | 'joke' | 'saying' | 'funny' | 'lesson';
+export type FileRole = 'original' | 'thumb' | 'poster';
+export type CommentKind = 'comment' | 'memory';
+
+export interface PublicUser {
+  id: string;
+  name: string;
+}
+
+export interface CurrentUser extends PublicUser {
+  email: string;
+  role: Role;
+}
+
+export interface FileInfo {
+  id: string;
+  role: FileRole;
+  mime: string;
+  size: number;
+  originalName: string;
+  width: number | null;
+  height: number | null;
+  duration: number | null;
+}
+
+export interface ItemSummary {
+  id: string;
+  kind: ItemKind;
+  title: string;
+  description: string | null;
+  excerpt: string | null;
+  storyType: StoryType | null;
+  dateText: string | null;
+  dateYear: number | null;
+  people: string | null;
+  tags: string[];
+  createdAt: number;
+  createdBy: PublicUser;
+  files: FileInfo[];
+  commentCount: number;
+  deletedAt: number | null;
+}
+
+export interface CommentInfo {
+  id: string;
+  kind: CommentKind;
+  body: string;
+  createdAt: number;
+  createdBy: PublicUser;
+}
+
+export type TranscriptStatus = 'none' | 'pending' | 'processing' | 'done' | 'failed';
+
+export interface ItemDetail extends ItemSummary {
+  body: string | null;
+  updatedAt: number;
+  links: ItemSummary[];
+  comments: CommentInfo[];
+  transcriptStatus: TranscriptStatus;
+}
+
+export interface HeroTraits {
+  quotes: string[];
+  symbols: { icon: string; label: string }[];
+  details: { label: string; value: string }[];
+}
+
+export interface SiteSettings {
+  siteTitle: string;
+  subtitle: string;
+  heroFileId: string | null;
+  heroTraits: HeroTraits;
+}
+
+export interface AuthStatus {
+  setupRequired: boolean;
+  user: CurrentUser | null;
+  siteTitle: string;
+}
+
+export interface TagInfo {
+  id: number;
+  name: string;
+  count: number;
+}
+
+export interface SearchResults {
+  query: string;
+  total: number;
+  groups: { kind: ItemKind; items: ItemSummary[] }[];
+}
+
+export interface AdminUser extends CurrentUser {
+  createdAt: number;
+  lastLoginAt: number | null;
+  disabledAt: number | null;
+}
+
+export interface InviteInfo {
+  id: string;
+  email: string | null;
+  note: string | null;
+  role: Role;
+  createdAt: number;
+  expiresAt: number;
+  usedAt: number | null;
+  usedBy: string | null;
+  revokedAt: number | null;
+  createdBy: string;
+}
+
+export interface BackupStatus {
+  backupBucketConfigured: boolean;
+  lastRun: BackupRun | null;
+  recentRuns: BackupRun[];
+  filesTotal: number;
+  filesBackedUp: number;
+  bytesTotal: number;
+}
+
+export interface BackupRun {
+  id: number;
+  startedAt: number;
+  finishedAt: number | null;
+  status: 'running' | 'ok' | 'partial' | 'failed' | 'skipped';
+  filesCopied: number;
+  bytesCopied: number;
+  snapshotKey: string | null;
+  message: string | null;
+}
+
+export interface ArchiveStats {
+  counts: Record<ItemKind, number>;
+  deleted: number;
+  users: number;
+  bytes: number;
+}

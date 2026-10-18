@@ -1,0 +1,39 @@
+/**
+ * הגדרות Cloudflare Workers עבור ״סבא דודו״.
+ * לפני פריסה ראשונה: החליפו את database_id במזהה שמתקבל מ-`wrangler d1 create saba-dudu-db`.
+ */
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "saba-dudu",
+  "main": "worker/index.ts",
+  "compatibility_date": "2025-09-01",
+  "compatibility_flags": ["nodejs_compat"],
+  "observability": { "enabled": true },
+
+  // ה-SPA מוגש כקבצים סטטיים; כל נתיב /api/* עובר קודם ל-Worker.
+  "assets": {
+    "not_found_handling": "single-page-application",
+    "run_worker_first": ["/api/*"]
+  },
+
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "saba-dudu-db",
+      "database_id": "REPLACE_WITH_YOUR_D1_DATABASE_ID",
+      "migrations_dir": "migrations"
+    }
+  ],
+
+  "r2_buckets": [
+    // אחסון קובצי המקור. ה-bucket פרטי — הגישה רק דרך ה-Worker אחרי התחברות.
+    { "binding": "MEDIA", "bucket_name": "saba-dudu-media" }
+    // גיבוי (אופציונלי, מומלץ): צרו bucket שני והסירו את ההערה מהשורה הבאה.
+    // ,{ "binding": "BACKUP", "bucket_name": "saba-dudu-backup" }
+  ],
+
+  // גיבוי לילי (02:00 UTC). פועל רק אם הוגדר BACKUP.
+  "triggers": { "crons": ["0 2 * * *"] }
+
+  // סודות (לא נשמרים בקוד): wrangler secret put SETUP_TOKEN
+}
