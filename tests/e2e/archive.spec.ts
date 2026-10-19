@@ -1,4 +1,4 @@
-import { expect, test, type Page } from '@playwright/test';
+import { devices, expect, test, type Page } from '@playwright/test';
 import path from 'node:path';
 import { FIXTURES } from './global-setup';
 
@@ -197,6 +197,25 @@ test('זיכרון אקראי במסך הבית', async ({ page }) => {
   expect(seen.size).toBeGreaterThanOrEqual(5);
   await page.waitForTimeout(500);
   await shot(page, '14-home-memory');
+  // תמונה: נמוכה בכ-40% מבעבר, ונפתחת בגודל מלא בלחיצה; פריט אחר: לדף הפריט
+  for (let i = 0; i < 30; i++) {
+    if (await page.locator('.memory__media--photo.memory__media--fit img').count()) break;
+    await page.getByRole('button', { name: 'עוד זיכרון' }).click();
+    await page.waitForTimeout(200);
+  }
+  const img = page.locator('.memory__media--photo.memory__media--fit img');
+  await expect(img).toBeVisible();
+  const h = await img.evaluate((el) => ({ h: (el as HTMLImageElement).offsetHeight, vh: innerHeight }));
+  expect(h.h).toBeLessThanOrEqual(Math.min(0.37 * h.vh, 290) + 1);
+  await page.locator('.memory__card').click();
+  await expect(page.locator('.lightbox')).toBeVisible();
+  await page.getByRole('button', { name: 'סגירה' }).click();
+  await page.getByRole('button', { name: 'עוד זיכרון' }).click();
+  for (let i = 0; i < 30; i++) {
+    if (!(await page.locator('.memory__card--button').count())) break;
+    await page.getByRole('button', { name: 'עוד זיכרון' }).click();
+    await page.waitForTimeout(200);
+  }
   await page.locator('.memory__card').click();
   await expect(page).toHaveURL(/\/item\//);
 });
@@ -463,24 +482,33 @@ test('יצירת ממוזערות לתמונות קיימות — המקור ל�
   expect(served.equals(jpg)).toBe(true);
 });
 
-test('מחיקת תמונה מהגלריה (מנהל) — עם אישור ועדכון מיידי', async ({ page }) => {
+test('מחיקת תמונה (מנהל) — מתוך התצוגה המלאה בלבד, עם אישור ועדכון מיידי', async ({ page }) => {
   await login(page);
   await page.goto('/c/photo?sort=new');
   const tiles = page.locator('.photo-tile');
   await expect(tiles.first().locator('img')).toBeVisible();
+  // הגלריה נקייה — אין כפתורי מחיקה על התמונות הממוזערות
+  await expect(page.locator('.photo-tile button[aria-label*="מחיקת"]')).toHaveCount(0);
   const totalOf = async () => Number(/\d+/.exec((await page.locator('.page-head__sub').textContent()) ?? '')![0]);
   const before = await totalOf();
   const src = await tiles.first().locator('img').getAttribute('src');
-  await tiles.first().locator('.photo-tile__delete').click();
+  await tiles.first().locator('.photo-tile__btn').click();
+  const del = page.locator('.lightbox__tools').getByRole('button', { name: 'מחיקת התמונה' });
+  await expect(del).toBeVisible();
+  await page.screenshot({ path: path.join(SHOTS, '34-lightbox-delete.png') });
+  await del.click();
   const dialog = page.locator('dialog');
   await expect(dialog).toContainText('סל המחזור');
   await dialog.getByRole('button', { name: 'ביטול' }).click();
-  await expect(page.locator(`.photo-tile img[src="${src}"]`)).toHaveCount(1);
-  await tiles.first().locator('.photo-tile__delete').click();
+  await expect(page.locator('.lightbox')).toBeVisible();
+  await del.click();
   await page.locator('dialog').getByRole('button', { name: 'מחיקה' }).click();
+  // התצוגה עוברת לתמונה הבאה, והגלריה מתעדכנת מיד
+  await expect(page.locator('.lightbox')).toBeVisible();
+  await page.getByRole('button', { name: 'סגירה' }).click();
   await expect(page.locator(`.photo-tile img[src="${src}"]`)).toHaveCount(0);
   await expect.poll(totalOf).toBe(before - 1);
-  await shot(page, '33-gallery-dense-delete');
+  await shot(page, '33-gallery-clean');
   // משוחזר מסל המחזור — כדי לא לשנות את שאר הבדיקות
   await page.goto('/settings/content');
   await page.getByRole('button', { name: 'שחזור' }).first().click();
@@ -551,7 +579,10 @@ test('בן משפחה מוזמן — אין לו אפשרות מחיקה, והש
 
   await member.goto('/c/photo');
   await expect(member.locator('.photo-tile').first()).toBeVisible();
-  await expect(member.locator('.photo-tile__delete')).toHaveCount(0);
+  await member.locator('.photo-tile__btn').first().click();
+  await expect(member.locator('.lightbox')).toBeVisible();
+  await expect(member.getByRole('button', { name: 'מחיקת התמונה' })).toHaveCount(0);
+  await member.getByRole('button', { name: 'סגירה' }).click();
   await member.goto('/c/story');
   await member.locator('.story-card').first().click();
   await expect(member.getByRole('button', { name: 'גם אני זוכר את זה' })).toBeVisible();
@@ -637,5 +668,67 @@ test.describe('מחשב', () => {
     await page.goto('/');
     await page.waitForTimeout(1600);
     await shot(page, '20-desktop-landing');
+  });
+});
+
+test.describe('Chrome באנדרואיד (אמולציה)', () => {
+  // Pixel 7 בלי defaultBrowserType (כולם רצים ב-Chromium ממילא)
+  const { defaultBrowserType: _ignored, ...pixel } = devices['Pixel 7'];
+  void _ignored;
+  test.use({ ...pixel, locale: 'he-IL' });
+  test('נגן Drive: לחיצה אחת למסך מלא, התאמה לאנכי ולאופקי, חזרה לארכיון', async ({ page }) => {
+    await login(page);
+    const vids = ((await (await page.request.get('/api/items?kind=video&limit=50')).json()) as { items: { externalVideo: { fileId: string } | null }[] }).items;
+    const driveId = vids.find((v) => v.externalVideo)!.externalVideo!.fileId;
+    await page.goto('/c/video');
+    const ua = await page.evaluate(() => navigator.userAgent);
+    expect(ua).toContain('Android');
+
+    const open = async (ratio: number) => {
+      await page.evaluate(([id, r]) => localStorage.setItem(`saba:drive-ratio:${id}`, String(r)), [driveId, ratio] as const);
+      await page.locator('.media-card', { has: page.locator('.media-card__source') }).first().click();
+      await expect(page.locator('.theater__frame iframe')).toBeVisible();
+      await expect.poll(() => page.evaluate(() => document.fullscreenElement?.tagName ?? null)).toBe('HTML');
+      return page.locator('.theater__frame').evaluate((el) => {
+        const r = el.getBoundingClientRect();
+        return { w: r.width, h: r.height, left: r.left, vw: innerWidth, vh: innerHeight };
+      });
+    };
+
+    // אנכי — מנצל את הגובה, במרכז המסך
+    const p = await open(9 / 16);
+    expect(Math.abs(p.w / p.h - 9 / 16)).toBeLessThan(0.02);
+    // ממלא את המסך עד הגבול הראשון (רוחב או גובה) — בלי חיתוך ובלי שטח מבוזבז מיותר
+    expect(Math.max(p.w / p.vw, p.h / p.vh)).toBeGreaterThan(0.98);
+    expect(p.h).toBeLessThanOrEqual(p.vh + 1);
+    expect(Math.abs(p.left - (p.vw - p.w) / 2)).toBeLessThan(2);
+    // כפתורים: רק סגירה, Drive ודף הסרטון — בלי כפילויות
+    await expect(page.locator('.theater__float > *')).toHaveCount(3);
+    await page.screenshot({ path: path.join(SHOTS, '35-android-drive-portrait.png') });
+    // ״חזרה״ של הטלפון — יציאה מהנגן וחזרה לארכיון
+    await page.goBack();
+    await expect(page.locator('.theater')).toHaveCount(0);
+    await expect(page).toHaveURL(/\/c\/video$/);
+
+    // אופקי — מנצל את רוחב המסך
+    await page.evaluate(() => document.fullscreenElement && document.exitFullscreen());
+    const l = await open(16 / 9);
+    expect(Math.abs(l.w - l.vw)).toBeLessThan(2);
+    expect(Math.abs(l.w / l.h - 16 / 9)).toBeLessThan(0.02);
+    await page.screenshot({ path: path.join(SHOTS, '36-android-drive-landscape.png') });
+    await page.getByRole('button', { name: 'סגירה וחזרה לארכיון' }).click();
+    await expect(page.locator('.theater')).toHaveCount(0);
+    await expect(page).toHaveURL(/\/c\/video$/);
+    await expect.poll(() => page.evaluate(() => document.fullscreenElement)).toBeNull();
+
+    // סרטון רגיל — מסך מלא וניגון בלחיצה אחת
+    await page.locator('.media-card', { hasNot: page.locator('.media-card__source') }).first().click();
+    const v = page.locator('.theater video');
+    await expect(v).toBeVisible();
+    await expect.poll(() => page.evaluate(() => document.fullscreenElement?.tagName ?? null)).toBe('HTML');
+    await expect.poll(() => v.evaluate((el: HTMLVideoElement) => !el.paused)).toBe(true);
+    await expect(page.locator('.theater__float > *')).toHaveCount(2);
+    await page.goBack();
+    await expect(page.locator('.theater')).toHaveCount(0);
   });
 });

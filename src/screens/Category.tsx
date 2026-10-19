@@ -63,7 +63,10 @@ function CategoryList({ kind }: { kind: ItemKind }) {
     setDeleting(true);
     try {
       await api.remove(confirmDelete.id);
-      setItems((prev) => prev.filter((i) => i.id !== confirmDelete.id));
+      const remaining = items.filter((i) => i.id !== confirmDelete.id);
+      setItems(remaining);
+      // אם המחיקה נעשתה מתוך התצוגה המלאה — עוברים לתמונה הבאה, או סוגרים אם לא נשארו
+      setOpen((o) => (o === null ? null : remaining.length ? Math.min(o, remaining.length - 1) : null));
       setTotal((t) => Math.max(0, t - 1));
       // הרשימה בשרת התקצרה בפריט אחד — כדי לא לדלג על פריט בעמוד הבא
       fetched.current = Math.max(0, fetched.current - 1);
@@ -243,7 +246,7 @@ function CategoryList({ kind }: { kind: ItemKind }) {
           {kind === 'photo' && (
             <div className="gallery">
               {items.map((it, i) => (
-                <PhotoTile key={it.id} item={it} onOpen={() => setOpen(i)} priority={i < 6} onDelete={isAdmin ? () => setConfirmDelete(it) : undefined} />
+                <PhotoTile key={it.id} item={it} onOpen={() => setOpen(i)} priority={i < 6} />
               ))}
             </div>
           )}
@@ -288,6 +291,7 @@ function CategoryList({ kind }: { kind: ItemKind }) {
             if (i >= items.length - 3 && fetched.current < total) more();
           }}
           onClose={() => setOpen(null)}
+          onDelete={isAdmin ? (it) => setConfirmDelete(it) : undefined}
         />
       )}
     </div>

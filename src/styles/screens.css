@@ -589,8 +589,39 @@
   width: auto;
   height: auto;
   max-width: 100%;
-  max-height: min(62vh, 480px);
+  /* כ-40% נמוך יותר מבעבר (היה min(62vh, 480px)) — הכרטיס קומפקטי יותר */
+  max-height: min(37vh, 290px);
   object-fit: contain;
+}
+.memory__card--button {
+  width: 100%;
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  color: inherit;
+  text-align: start;
+  cursor: zoom-in;
+}
+@media (max-width: 759px) {
+  .memory {
+    gap: 10px;
+    margin-top: 14px;
+    padding: 14px 14px 12px;
+  }
+  .memory__card {
+    gap: 10px;
+  }
+  .memory__media {
+    border-width: 4px;
+  }
+  .memory__title {
+    font-size: 1.25rem;
+  }
+  .memory__excerpt {
+    -webkit-line-clamp: 3;
+    font-size: 1rem;
+  }
 }
 .memory__media--icon {
   color: var(--gold);
@@ -1900,4 +1931,8 @@
   display: grid;
   justify-items: center;
   gap: 14px;
+}
+/* כרטיס ״זיכרון מסבא״ קומפקטי גם להקלטות ולמסמכים (כ-40% נמוך יותר) */
+.memory__media--icon {
+  aspect-ratio: 16 / 6;
 }

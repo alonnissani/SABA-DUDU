@@ -10,7 +10,14 @@ const MAX_SCALE = 5;
 const clamp = (v: number, a: number, b: number) => Math.max(a, Math.min(b, v));
 
 /** צפייה בתמונה במסך מלא: הגדלה/הקטנה (כפתורים, גלגלת, צביטה, הקשה כפולה), גרירה ודפדוף. */
-export function Lightbox({ items, index, onIndex, onClose }: { items: ItemSummary[]; index: number; onIndex: (i: number) => void; onClose: () => void }) {
+export function Lightbox({ items, index, onIndex, onClose, onDelete }: {
+  items: ItemSummary[];
+  index: number;
+  onIndex: (i: number) => void;
+  onClose: () => void;
+  /** מחיקה (מנהל בלבד) — כפתור בסרגל הפעולות, מחוץ לשטח התמונה */
+  onDelete?: (item: ItemSummary) => void;
+}) {
   const item = items[index];
   const [scale, setScale] = useState(1);
   const [pos, setPos] = useState({ x: 0, y: 0 });
@@ -51,6 +58,8 @@ export function Lightbox({ items, index, onIndex, onClose }: { items: ItemSummar
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
+      // כשחלונית אישור פתוחה — Esc סוגר רק אותה
+      if (document.querySelector('dialog[open]')) return;
       if (e.key === 'Escape') onClose();
       else if (e.key === 'ArrowLeft') go(1); // בעברית — ״הבא״ משמאל
       else if (e.key === 'ArrowRight') go(-1);
@@ -128,6 +137,11 @@ export function Lightbox({ items, index, onIndex, onClose }: { items: ItemSummar
             <a className="lb-btn" href={fileUrl(original.id, true)} aria-label="הורדת קובץ המקור">
               <Icon name="download" />
             </a>
+          )}
+          {onDelete && (
+            <button className="lb-btn lb-btn--danger" onClick={() => onDelete(item)} aria-label="מחיקת התמונה">
+              <Icon name="trash" />
+            </button>
           )}
           <button className="lb-btn" onClick={() => setShowInfo((v) => !v)} aria-label={showInfo ? 'הסתרת פרטים' : 'הצגת פרטים'} aria-pressed={showInfo}>
             <Icon name="story" />

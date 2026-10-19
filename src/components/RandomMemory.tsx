@@ -6,6 +6,7 @@ import { api } from '../api/client';
 import { displayTitle, formatDuration, itemDateLabel, originalOf, previewUrl } from '../lib/media';
 import { Icon, KIND_ICON } from './Icon';
 import { ErrorBox, SafeImg } from './Common';
+import { Lightbox } from './Lightbox';
 
 const HISTORY_KEY = 'saba:random-history';
 const HISTORY_MAX = 25;
@@ -32,6 +33,7 @@ export function RandomMemory() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [anim, setAnim] = useState(0);
+  const [zoom, setZoom] = useState(false);
 
   const next = useCallback(async () => {
     setBusy(true);
@@ -95,7 +97,10 @@ export function RandomMemory() {
       {!item ? (
         <div className="memory__skeleton" aria-hidden="true" />
       ) : (
-        <Link key={anim} to={`/item/${item.id}`} className="memory__card">
+        (() => {
+          // תמונה — לחיצה פותחת אותה בגודל מלא; שאר הסוגים — לדף הפריט
+          const content = (
+            <>
           <MemoryPreview item={item} />
           <span className="memory__text">
             <span className="memory__kind">
@@ -110,12 +115,25 @@ export function RandomMemory() {
               {item.kind === 'story' ? 'נכתב' : 'הועלה'} ע״י {item.createdBy.name}
             </span>
           </span>
-        </Link>
+            </>
+          );
+          return item.kind === 'photo' ? (
+            <button key={anim} type="button" className="memory__card memory__card--button" onClick={() => setZoom(true)}>
+              {content}
+              <span className="visually-hidden">פתיחת התמונה בגודל מלא</span>
+            </button>
+          ) : (
+            <Link key={anim} to={`/item/${item.id}`} className="memory__card">
+              {content}
+            </Link>
+          );
+        })()
       )}
       <button className="btn btn--ghost memory__more" onClick={next} disabled={busy || (total ?? 0) < 2}>
         <Icon name="shuffle" />
         עוד זיכרון
       </button>
+      {zoom && item && <Lightbox items={[item]} index={0} onIndex={() => undefined} onClose={() => setZoom(false)} />}
     </section>
   );
 }

@@ -104,9 +104,15 @@ export function DriveVideo({ fileId, url, title }: { fileId: string; url: string
 
   useEffect(() => {
     setCanFs(fullscreenSupported());
+    const cached = readDriveRatio(fileId);
+    if (cached) setRatio(cached);
     const img = new Image();
     img.referrerPolicy = 'no-referrer';
-    img.onload = () => img.naturalWidth && img.naturalHeight && setRatio(img.naturalWidth / img.naturalHeight);
+    img.onload = () => {
+      if (!img.naturalWidth || !img.naturalHeight) return;
+      setRatio(img.naturalWidth / img.naturalHeight);
+      writeDriveRatio(fileId, img.naturalWidth / img.naturalHeight);
+    };
     img.src = driveThumbUrl(fileId);
   }, [fileId]);
 
@@ -132,11 +138,13 @@ export function DriveVideo({ fileId, url, title }: { fileId: string; url: string
       <div className="video-wrap__bar">
         <span className="meta__muted small">הסרטון מוצג מ-Google Drive. אם הוא לא מתנגן, ייתכן שהרשאות השיתוף שלו מוגבלות.</span>
         <div className="video-wrap__actions">
-          <button className="btn btn--primary btn--sm" onClick={fullscreen}>
-            <Icon name="fullscreen" size={18} />
-            {canFs ? 'צפייה במסך מלא' : 'מסך מלא ב-Google Drive'}
-          </button>
-          <a className="btn btn--ghost btn--sm" href={url} target="_blank" rel="noopener noreferrer">
+          {canFs && (
+            <button className="btn btn--primary btn--sm" onClick={fullscreen}>
+              <Icon name="fullscreen" size={18} />
+              צפייה במסך מלא
+            </button>
+          )}
+          <a className={`btn btn--sm ${canFs ? 'btn--ghost' : 'btn--primary'}`} href={url} target="_blank" rel="noopener noreferrer">
             <Icon name="link" size={18} />
             פתיחה ב-Google Drive
           </a>
@@ -162,6 +170,24 @@ export function requestPageFullscreen(landscape: boolean): void {
     .catch(() => undefined);
 }
 
+// יחס הגובה-רוחב של סרטוני Drive נלמד מהתמונה הממוזערת שלהם; נשמר בדפדפן כדי שבפעם הבאה הנגן ייפתח מיד בגודל הנכון
+const RATIO_KEY = 'saba:drive-ratio:';
+function readDriveRatio(id: string): number | null {
+  try {
+    const v = Number(localStorage.getItem(RATIO_KEY + id));
+    return v > 0 ? v : null;
+  } catch {
+    return null;
+  }
+}
+function writeDriveRatio(id: string, r: number) {
+  try {
+    localStorage.setItem(RATIO_KEY + id, String(r));
+  } catch {
+    /* אחסון לא זמין */
+  }
+}
+
 const isFullscreen = () => Boolean(document.fullscreenElement || (document as Document & { webkitFullscreenElement?: Element }).webkitFullscreenElement);
 
 /**
@@ -171,24 +197,18 @@ const isFullscreen = () => Boolean(document.fullscreenElement || (document as Do
 export function VideoTheater({ item, onClose }: { item: ItemSummary; onClose: () => void }) {
   const videoRef = useRef<FsVideo>(null);
   const closeRef = useRef<HTMLButtonElement>(null);
-  const [fs, setFs] = useState(isFullscreen());
   const original = item.files.find((f) => f.role === 'original');
   const poster = item.files.find((f) => f.role === 'poster' || f.role === 'thumb');
   const [ratio, setRatio] = useState<number | null>(original?.width && original?.height ? original.width / original.height : null);
   const ext = item.externalVideo;
 
   useEffect(() => {
-    const onChange = () => setFs(isFullscreen());
     const onKey = (e: KeyboardEvent) => e.key === 'Escape' && !isFullscreen() && close();
-    document.addEventListener('fullscreenchange', onChange);
-    document.addEventListener('webkitfullscreenchange', onChange);
     window.addEventListener('keydown', onKey);
     const prev = document.body.style.overflow;
     document.body.style.overflow = 'hidden';
     closeRef.current?.focus();
     return () => {
-      document.removeEventListener('fullscreenchange', onChange);
-      document.removeEventListener('webkitfullscreenchange', onChange);
       window.removeEventListener('keydown', onKey);
       document.body.style.overflow = prev;
     };
@@ -197,55 +217,68 @@ export function VideoTheater({ item, onClose }: { item: ItemSummary; onClose: ()
 
   useEffect(() => {
     if (!ext) return;
+    const cached = readDriveRatio(ext.fileId);
+    if (cached) setRatio(cached);
     const img = new Image();
     img.referrerPolicy = 'no-referrer';
-    img.onload = () => img.naturalWidth && img.naturalHeight && setRatio(img.naturalWidth / img.naturalHeight);
+    img.onload = () => {
+      if (!img.naturalWidth || !img.naturalHeight) return;
+      const r = img.naturalWidth / img.naturalHeight;
+      setRatio(r);
+      writeDriveRatio(ext.fileId, r);
+    };
     img.src = driveThumbUrl(ext.fileId);
   }, [ext]);
 
-  const close = () => {
+  const leaveFullscreen = () => {
     if (isFullscreen()) document.exitFullscreen?.().catch(() => undefined);
     try {
       screen.orientation?.unlock?.();
     } catch {
       /* לא נתמך */
     }
-    onClose();
+  };
+  // ״חזרה״ בטלפון סוגרת את הנגן וחוזרת לארכיון (במקום לצאת מדף הגלריה)
+  const popped = useRef(false);
+  useEffect(() => {
+    history.pushState({ sabaTheater: true }, '');
+    const onPop = () => {
+      popped.current = true;
+      leaveFullscreen();
+      onClose();
+    };
+    window.addEventListener('popstate', onPop);
+    return () => window.removeEventListener('popstate', onPop);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+  const close = () => {
+    leaveFullscreen();
+    if (!popped.current && (history.state as { sabaTheater?: boolean } | null)?.sabaTheater) history.back();
+    else onClose();
   };
 
-  const goFullscreen = () => {
-    if (fullscreenSupported()) requestPageFullscreen(ratio === null || ratio >= 1);
-    else if (videoRef.current?.webkitEnterFullscreen) videoRef.current.webkitEnterFullscreen();
-    else if (ext) window.open(ext.url, '_blank', 'noopener');
-  };
 
   const r = ratio ?? 16 / 9;
   return (
     <div className="theater" role="dialog" aria-modal="true" aria-label={item.title || 'סרטון'}>
-      <div className="theater__bar">
-        <button ref={closeRef} className="lb-btn" onClick={close} aria-label="סגירה">
+      {/* כפתורים צפים קטנים — בלי סרגל, כדי שהסרטון ינצל את כל המסך */}
+      <div className="theater__float">
+        <button ref={closeRef} className="lb-btn" onClick={close} aria-label="סגירה וחזרה לארכיון">
           <Icon name="close" />
         </button>
-        <span className="theater__title">{item.title}</span>
-        <div className="theater__tools">
-          {!fs && (
-            <button className="lb-btn" onClick={goFullscreen} aria-label="מסך מלא">
-              <Icon name="fullscreen" />
-            </button>
-          )}
-          {ext && (
-            <a className="lb-btn" href={ext.url} target="_blank" rel="noopener noreferrer" aria-label="פתיחה ב-Google Drive">
-              <Icon name="link" />
-            </a>
-          )}
-          <Link className="lb-btn" to={`/item/${item.id}`} onClick={close} aria-label="לדף הסרטון ותגובות">
-            <Icon name="comment" />
-          </Link>
-        </div>
+        {ext && (
+          <a className="lb-btn" href={ext.url} target="_blank" rel="noopener noreferrer" aria-label="פתיחה ב-Google Drive">
+            <Icon name="link" />
+          </a>
+        )}
+        <Link className="lb-btn" to={`/item/${item.id}`} onClick={leaveFullscreen} aria-label="לדף הסרטון ותגובות">
+          <Icon name="comment" />
+        </Link>
       </div>
       <div className="theater__stage">
         {ext ? (
-          <div className="theater__frame" style={{ aspectRatio: String(r), width: `min(100%, calc((100dvh - 64px - env(safe-area-inset-top, 0px)) * ${r}))` }}>
+          // אנכי — מנצל את הגובה; אופקי — את הרוחב; היחס נשמר
+          <div className="theater__frame" style={{ aspectRatio: String(r), width: `min(100vw, calc(var(--theater-h) * ${r}))` }}>
             <iframe
               src={drivePreviewUrl(ext.fileId)}
               title={item.title || 'סרטון מ-Google Drive'}
@@ -270,11 +303,6 @@ export function VideoTheater({ item, onClose }: { item: ItemSummary; onClose: ()
           />
         ) : null}
       </div>
-      {!fs && (
-        <p className="theater__hint">
-          {ext ? 'אם הסרטון לא מתנגן כאן, אפשר לפתוח אותו ב-Google Drive.' : 'אפשר להגדיל למסך מלא בכפתור שלמעלה.'}
-        </p>
-      )}
     </div>
   );
 }

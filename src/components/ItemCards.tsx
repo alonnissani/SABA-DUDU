@@ -41,7 +41,7 @@ export function TagList({ tags }: { tags: string[] }) {
 }
 
 /** תמונה בגלריה — בסגנון תמונה מודבקת באלבום. */
-export function PhotoTile({ item, onOpen, priority, onDelete }: { item: ItemSummary; onOpen: () => void; priority?: boolean; onDelete?: () => void }) {
+export function PhotoTile({ item, onOpen, priority }: { item: ItemSummary; onOpen: () => void; priority?: boolean }) {
   const src = previewUrl(item);
   const [loaded, setLoaded] = useState(false);
   const o = originalOf(item);
@@ -50,11 +50,6 @@ export function PhotoTile({ item, onOpen, priority, onDelete }: { item: ItemSumm
   const date = itemDateLabel(item);
   return (
     <figure className="photo-tile">
-      {onDelete && (
-        <button className="photo-tile__delete" onClick={onDelete} aria-label={title ? `מחיקת התמונה: ${title}` : 'מחיקת התמונה'}>
-          <Icon name="trash" size={17} />
-        </button>
-      )}
       <button className="photo-tile__btn" onClick={onOpen} aria-label={title ? `פתיחת התמונה: ${title}` : 'פתיחת התמונה'}>
         <span className={`photo-tile__img ${loaded || !src ? 'is-loaded' : ''}`} style={{ aspectRatio: ratio }}>
           {src ? (
