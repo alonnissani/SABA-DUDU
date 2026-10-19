@@ -10,7 +10,7 @@ import { AudioPlayer } from '../components/AudioPlayer';
 import { ItemMeta, ItemRowCard, TagList } from '../components/ItemCards';
 import { Lightbox } from '../components/Lightbox';
 import { MetaFields, metaPayload, type MetaValues } from '../components/MetaFields';
-import { accessibleTitle, displayTitle, displayableImage, formatDate, originalOf, previewOf, previewUrl } from '../lib/media';
+import { WEB_IMAGES, accessibleTitle, displayTitle, displayableImage, formatDate, originalOf, previewOf, previewUrl } from '../lib/media';
 import { parseDriveFileId } from '../../shared/drive';
 import { DriveVideo, UploadedVideo } from '../components/VideoPlayer';
 import { precheck, uploadStoryImage } from '../lib/uploader';
@@ -255,12 +255,15 @@ function StoryBody({ item }: { item: ItemDetail }) {
   const photos = item.storyImages.map((img) => storyImageAsItem(img, item));
   const cover = photos[0] ?? null;
   const [open, setOpen] = useState<number | null>(null);
-  const coverSrc = cover ? previewUrl(cover) : null;
+  // בדף הסיפור התמונה גדולה — מוצג המקור (באיכות מלאה) כשהדפדפן יכול להציג אותו
+  const coverOriginal = cover ? originalOf(cover) : undefined;
+  const coverSrc = cover ? (coverOriginal && WEB_IMAGES.includes(coverOriginal.mime) ? fileUrl(coverOriginal.id) : previewUrl(cover)) : null;
+  const coverRatio = coverOriginal?.width && coverOriginal?.height ? `${coverOriginal.width} / ${coverOriginal.height}` : undefined;
   const heading = (
     <>
       <h1 className="sheet__title">{item.title}</h1>
       <p className="sheet__byline">
-        מאת {item.createdBy.name} · {formatDate(item.createdAt)}
+        מאת {item.createdBy.name}
         {(item.dateText || item.dateYear) && ` · ${item.dateText ?? item.dateYear}`}
       </p>
     </>
@@ -269,11 +272,11 @@ function StoryBody({ item }: { item: ItemDetail }) {
     <div className="sheet">
       {item.storyType && <span className="badge">{STORY_TYPE_LABEL[item.storyType]}</span>}
       {cover && coverSrc ? (
-        <div className="sheet__head">
-          <button type="button" className="sheet__photo" onClick={() => setOpen(0)} aria-label="פתיחת התמונה בגודל מלא">
-            <img src={coverSrc} alt="" decoding="async" />
-          </button>
+        <div className="sheet__head sheet__head--photo">
           <div className="sheet__heading">{heading}</div>
+          <button type="button" className="sheet__photo" onClick={() => setOpen(0)} aria-label="פתיחת התמונה בגודל מלא">
+            <img src={coverSrc} alt="" decoding="async" style={{ aspectRatio: coverRatio }} />
+          </button>
         </div>
       ) : (
         heading
@@ -294,7 +297,7 @@ function LinkedItems({ item }: { item: ItemDetail }) {
   return (
     <>
       {photos.length > 0 && (
-        <div className="linked-photos">
+        <div className="linked-photos linked-photos--story">
           {photos.map((p, i) => (
             <button key={p.id} className="linked-photos__btn" onClick={() => setOpen(i)} aria-label={`פתיחת התמונה ${displayTitle(p) ?? ''}`.trim()}>
               {previewUrl(p) ? <img src={previewUrl(p)!} alt="" loading="lazy" /> : <Icon name="photo" />}

@@ -8,6 +8,9 @@ import { Icon, KIND_ICON } from './Icon';
 import { AudioPlayer } from './AudioPlayer';
 import { fileUrl } from '../api/client';
 
+/** תאריך ההעלאה (פרט מערכת) לא מוצג בסיפורים, בהקלטות ובמסמכים — רק התאריך שהוא חלק מהתוכן */
+const HIDE_UPLOAD_DATE: ItemSummary['kind'][] = ['story', 'audio', 'document'];
+
 export function ItemMeta({ item, showKind }: { item: ItemSummary; showKind?: boolean }) {
   const date = itemDateLabel(item);
   return (
@@ -22,7 +25,7 @@ export function ItemMeta({ item, showKind }: { item: ItemSummary; showKind?: boo
       <span>
         {item.kind === 'story' ? 'נכתב' : 'הועלה'} ע״י {item.createdBy.name}
       </span>
-      <span className="meta__muted">{formatDate(item.createdAt)}</span>
+      {!HIDE_UPLOAD_DATE.includes(item.kind) && <span className="meta__muted">{formatDate(item.createdAt)}</span>}
     </p>
   );
 }
@@ -81,6 +84,8 @@ export function PhotoTile({ item, onOpen, priority }: { item: ItemSummary; onOpe
 export function VideoCard({ item, onPlay }: { item: ItemSummary; onPlay?: () => void }) {
   const src = previewUrl(item);
   const o = originalOf(item);
+  // מקור הסרטון — לא מוצג למשתמשים (רק לזיהוי בבדיקות)
+  const source = item.externalVideo ? 'drive' : 'upload';
   const content = (
     <>
       <span className="media-card__thumb">
@@ -89,7 +94,6 @@ export function VideoCard({ item, onPlay }: { item: ItemSummary; onPlay?: () => 
         ) : (
           <span className="media-card__noprev"><Icon name="video" size={30} /></span>
         )}
-        {item.externalVideo && <span className="media-card__source">Drive</span>}
         <span className="media-card__play" aria-hidden="true">
           <Icon name="play" size={15} />
         </span>
@@ -103,13 +107,13 @@ export function VideoCard({ item, onPlay }: { item: ItemSummary; onPlay?: () => 
   );
   if (onPlay) {
     return (
-      <button type="button" className="card media-card" onClick={onPlay} aria-label={`צפייה בסרטון: ${item.title}`}>
+      <button type="button" className="card media-card" data-source={source} onClick={onPlay} aria-label={`צפייה בסרטון: ${item.title}`}>
         {content}
       </button>
     );
   }
   return (
-    <Link to={`/item/${item.id}`} className="card media-card">
+    <Link to={`/item/${item.id}`} className="card media-card" data-source={source}>
       {content}
     </Link>
   );

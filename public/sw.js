@@ -1,7 +1,7 @@
 // Service Worker — שומר במטמון רק את ״מעטפת״ האפליקציה (קוד, עיצוב, גופנים, אייקונים).
 // תכנים משפחתיים וקריאות API לעולם לא נשמרים במטמון של ה-Service Worker, מטעמי פרטיות.
-const CACHE = 'saba-shell-v1';
-const SHELL = ['/', '/manifest.webmanifest', '/icons/icon.svg', '/icons/icon-192.png'];
+const CACHE = 'saba-shell-v2';
+const SHELL = ['/', '/manifest.webmanifest', '/icons/icon.svg?v=2', '/icons/icon-192.png?v=2'];
 
 self.addEventListener('install', (event) => {
   event.waitUntil(caches.open(CACHE).then((c) => c.addAll(SHELL)).then(() => self.skipWaiting()));

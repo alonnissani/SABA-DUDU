@@ -4,7 +4,7 @@ import { driveThumbUrl } from '../../shared/drive';
 import { isTechnicalTitle } from '../../shared/titles';
 
 /** פורמטים שרוב הדפדפנים יודעים להציג. HEIC/TIFF מוצגים רק בחלק מהדפדפנים. */
-const WEB_IMAGES = ['image/jpeg', 'image/png', 'image/webp', 'image/gif', 'image/avif'];
+export const WEB_IMAGES = ['image/jpeg', 'image/png', 'image/webp', 'image/gif', 'image/avif'];
 
 export const originalOf = (item: Pick<ItemSummary, 'files'>): FileInfo | undefined => item.files.find((f) => f.role === 'original');
 export const previewOf = (item: Pick<ItemSummary, 'files'>): FileInfo | undefined =>

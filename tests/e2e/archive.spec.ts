@@ -273,6 +273,45 @@ test('חיפוש בכל הקטגוריות', async ({ page }) => {
   await expect(page.locator('.search__group')).toHaveCount(1);
 });
 
+test('בלי תאריכי העלאה בסיפורים, בהקלטות ובמסמכים — רק תאריכים שהם חלק מהתוכן', async ({ page }) => {
+  await login(page);
+  const year = String(new Date().getFullYear());
+  for (const kind of ['story', 'audio', 'document']) {
+    await page.goto(`/c/${kind}`);
+    const cards = page.locator(kind === 'story' ? '.story-card' : kind === 'audio' ? '.audio-card' : '.doc-card');
+    await expect(cards.first()).toBeVisible();
+    await expect(cards.locator('.meta .meta__muted')).toHaveCount(0);
+    for (const t of await cards.allInnerTexts()) expect(t, kind).not.toContain(year);
+    const list = (await (await page.request.get(`/api/items?kind=${kind}&limit=1`)).json()) as { items: { id: string }[] };
+    await page.goto(`/item/${list.items[0].id}`);
+    await expect(page.locator('main')).toBeVisible();
+    await expect(page.locator('.meta .meta__muted')).toHaveCount(0);
+    await expect(page.locator(kind === 'story' ? '.sheet__byline' : '.meta').first()).not.toContainText(year);
+  }
+  // תאריך שהוא חלק מהתוכן (״תאריך או תקופה״) — עדיין מוצג
+  const origin = new URL(page.url()).origin;
+  const s = (await (await page.request.post('/api/items', { data: { kind: 'story', title: 'קיץ בחוף', body: 'ים', storyType: 'family', dateText: 'קיץ 1974' }, headers: { origin } })).json()) as { id: string };
+  await page.goto(`/item/${s.id}`);
+  await expect(page.locator('.sheet__byline')).toContainText('קיץ 1974');
+  await shot(page, '13b-story-no-upload-date');
+});
+
+test('אייקון האפליקציה (PWA): ״דודו״, גרסה מעודכנת במניפסט ובמטמון', async ({ page }) => {
+  await page.goto('/');
+  const manifest = (await (await page.request.get('/manifest.webmanifest')).json()) as { short_name: string; icons: { src: string; sizes: string; purpose: string }[] };
+  expect(manifest.short_name).toBe('סבא דודו');
+  for (const want of [['192x192', 'any'], ['512x512', 'any'], ['512x512', 'maskable']]) {
+    const icon = manifest.icons.find((i) => i.sizes === want[0] && i.purpose === want[1] && i.src.endsWith('.png?v=2'));
+    expect(icon, want.join(' ')).toBeTruthy();
+    const res = await page.request.get(icon!.src);
+    expect(res.status()).toBe(200);
+    expect(res.headers()['content-type']).toContain('image/png');
+  }
+  expect(await (await page.request.get('/icons/icon.svg?v=2')).text()).toContain('>דודו</text>');
+  expect(await page.locator('link[rel=apple-touch-icon]').getAttribute('href')).toBe('/icons/apple-touch-icon.png?v=2');
+  expect(await (await page.request.get('/sw.js')).text()).toContain("'saba-shell-v2'");
+});
+
 test('זיכרון אקראי במסך הבית — תמונות מהגלריה בלבד', async ({ page }) => {
   await login(page);
   const img = page.locator('.memory__media--photo.memory__media--fit img');
@@ -357,7 +396,10 @@ test('סרטון מקישור Google Drive', async ({ page }) => {
   // מופיע ברשימת הסרטונים לצד הסרטון שהועלה כקובץ
   await page.goto('/c/video');
   await expect(page.locator('.media-card')).toHaveCount(2);
-  await expect(page.locator('.media-card__source')).toHaveCount(1);
+  await expect(page.locator('.media-card[data-source="drive"]')).toHaveCount(1);
+  // בלי תגית ״Drive״ על הכרטיסים
+  for (const t of await page.locator('.media-card').allInnerTexts()) expect(t).not.toContain('Drive');
+  await expect(page.locator('.media-card__source')).toHaveCount(0);
 });
 
 test('״זיכרון מסבא״ מציג תמונה אנכית ואופקית במלואה', async ({ page }) => {
@@ -470,7 +512,7 @@ test('סרטונים: חלונית צפייה ביחס המקורי, בלי מס
   expect(await cols()).toBe(2);
   await page.setViewportSize({ width: 390, height: 844 });
   // לחיצה על כרטיס — חלונית צפייה בתוך האתר, בלי מסך מלא כפוי
-  await page.locator('.media-card', { hasNot: page.locator('.media-card__source') }).first().click();
+  await page.locator('.media-card[data-source="upload"]').first().click();
   const tv = page.locator('.theater video');
   await expect(tv).toBeVisible();
   expect(await page.evaluate(() => document.fullscreenElement)).toBeNull();
@@ -495,18 +537,18 @@ test('סרטונים: חלונית צפייה ביחס המקורי, בלי מס
   await page.getByRole('button', { name: 'סגירה' }).click();
   await expect(page.locator('.theater')).toHaveCount(0);
   // Esc ולחיצה על הרקע סוגרים גם הם
-  await page.locator('.media-card', { hasNot: page.locator('.media-card__source') }).first().click();
+  await page.locator('.media-card[data-source="upload"]').first().click();
   await expect(tv).toBeVisible();
   await page.keyboard.press('Escape');
   await expect(page.locator('.theater')).toHaveCount(0);
-  await page.locator('.media-card', { hasNot: page.locator('.media-card__source') }).first().click();
+  await page.locator('.media-card[data-source="upload"]').first().click();
   await expect(tv).toBeVisible();
   await page.locator('.theater__stage').click({ position: { x: 4, y: 4 } });
   await expect(page.locator('.theater')).toHaveCount(0);
   await expect(page).toHaveURL(/\/c\/video$/);
 
   // דף הסרטון עצמו — כפתור מסך מלא
-  await page.locator('.media-card', { hasNot: page.locator('.media-card__source') }).first().click();
+  await page.locator('.media-card[data-source="upload"]').first().click();
   await page.getByRole('link', { name: 'לדף הסרטון ותגובות' }).click();
   await expect.poll(() => page.evaluate(() => document.fullscreenElement)).toBeNull();
   const video = page.locator('video.video');
@@ -526,7 +568,7 @@ test('סרטונים: חלונית צפייה ביחס המקורי, בלי מס
 
   // סרטון Google Drive — לחיצה בגלריה פותחת את החלונית עם הנגן המוטמע (עם מסך מלא משלו)
   await page.goto('/c/video');
-  await page.locator('.media-card', { has: page.locator('.media-card__source') }).first().click();
+  await page.locator('.media-card[data-source="drive"]').first().click();
   const iframe = page.locator('.theater__frame iframe');
   await expect(iframe).toBeVisible();
   await expect(page.locator('.theater__frame > *')).toHaveCount(1);
@@ -811,7 +853,7 @@ test('סרטונים וסיפורים: סדר אקראי בכל כניסה, בל
   expect(seen.video.size).toBeGreaterThanOrEqual(2);
   expect(a).not.toBe(b);
   // כל הסרטונים מוצגים (הרשימה מסוננת מכפילויות לפי מזהה) — כולל סרטוני Drive
-  await expect(page.locator('.media-card', { has: page.locator('.media-card__source') })).not.toHaveCount(0);
+  await expect(page.locator('.media-card[data-source="drive"]')).not.toHaveCount(0);
 
   // גלילה עד הסוף בסיפורים — כל סיפור פעם אחת
   await nav.getByRole('link', { name: 'סיפורים' }).click();
@@ -889,16 +931,39 @@ test('תמונה לסיפור: ממוזערת לצד הכותרת, הוספה, �
   expect(await galleryTotal()).toBe(galleryBefore);
   const first = (await summary()).coverFileId;
   expect(first).not.toBeNull();
-  // בדף הסיפור — התמונה ליד הכותרת, ולחיצה פותחת אותה בגודל מלא
+  // בדף הסיפור — התמונה גדולה מתחת לכותרת, ברוחב הדף וביחס המקורי (בלי חיתוך), ולחיצה פותחת אותה בגודל מלא
   const photoBtn = page.locator('.sheet__head .sheet__photo');
   await expect(photoBtn.locator('img')).toBeVisible();
+  await expect.poll(() => photoBtn.locator('img').evaluate((el: HTMLImageElement) => el.complete && el.naturalWidth)).toBeGreaterThan(0);
   const pb = (await photoBtn.boundingBox())!;
   const tb = (await page.locator('.sheet__head .sheet__title').boundingBox())!;
-  expect(pb.width).toBeLessThanOrEqual(130);
-  expect(Math.min(pb.y + pb.height, tb.y + tb.height) - Math.max(pb.y, tb.y)).toBeGreaterThan(0);
+  const sheet = (await page.locator('.sheet').boundingBox())!;
+  expect(pb.width).toBeGreaterThan(sheet.width * 0.85);
+  expect(pb.y).toBeGreaterThanOrEqual(tb.y + tb.height - 1);
+  const img = await photoBtn.locator('img').evaluate((el: HTMLImageElement) => {
+    const r = el.getBoundingClientRect();
+    return { ratio: r.width / r.height, natural: el.naturalWidth / el.naturalHeight, fit: getComputedStyle(el).objectFit, h: r.height, vh: innerHeight };
+  });
+  expect(Math.abs(img.ratio - img.natural)).toBeLessThan(0.02);
+  expect(img.fit).toBe('contain');
+  expect(img.h).toBeGreaterThan(300);
+  expect(img.h).toBeLessThanOrEqual(img.vh * 0.8);
+  // אין תאריך העלאה בשורת הכותב
+  await expect(page.locator('.sheet__byline')).not.toContainText(/\d{4}/);
   await expect(page.locator('.linked-photos')).toHaveCount(0);
   await noHorizontalScroll(page);
   await page.screenshot({ path: path.join(SHOTS, '42-story-page-photo.png') });
+  // במחשב — גדולה, ממורכזת וכולה בתוך המסך
+  await page.setViewportSize({ width: 1366, height: 900 });
+  const desk = await photoBtn.locator('img').evaluate((el: HTMLImageElement) => {
+    const r = el.getBoundingClientRect();
+    return { ratio: r.width / r.height, natural: el.naturalWidth / el.naturalHeight, h: r.height, vh: innerHeight };
+  });
+  expect(Math.abs(desk.ratio - desk.natural)).toBeLessThan(0.02);
+  expect(desk.h).toBeGreaterThan(500);
+  expect(desk.h).toBeLessThanOrEqual(desk.vh * 0.8);
+  await page.screenshot({ path: path.join(SHOTS, '42b-story-page-photo-desktop.png') });
+  await page.setViewportSize({ width: 390, height: 844 });
   await photoBtn.click();
   const full = page.locator('.lightbox .lightbox__img img').last();
   await expect(full).toBeVisible();
@@ -1134,7 +1199,7 @@ test.describe('Chrome באנדרואיד (אמולציה)', () => {
 
     const open = async (ratio: number) => {
       await page.evaluate(([id, r]) => localStorage.setItem(`saba:drive-ratio:${id}`, String(r)), [driveId, ratio] as const);
-      await page.locator('.media-card', { has: page.locator('.media-card__source') }).first().click();
+      await page.locator('.media-card[data-source="drive"]').first().click();
       await expect(page.locator('.theater__frame iframe')).toBeVisible();
       // אין מסך מלא כפוי (ולכן גם אין נעילת כיוון)
       expect(await page.evaluate(() => document.fullscreenElement)).toBeNull();
@@ -1173,7 +1238,7 @@ test.describe('Chrome באנדרואיד (אמולציה)', () => {
     await expect(page).toHaveURL(/\/c\/video$/);
 
     // סרטון שהועלה — נפתח בחלונית ומתחיל לנגן בנגן המקורי
-    await page.locator('.media-card', { hasNot: page.locator('.media-card__source') }).first().click();
+    await page.locator('.media-card[data-source="upload"]').first().click();
     const v = page.locator('.theater video');
     await expect(v).toBeVisible();
     expect(await page.evaluate(() => document.fullscreenElement)).toBeNull();

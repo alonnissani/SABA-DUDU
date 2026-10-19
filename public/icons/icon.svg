@@ -14,5 +14,5 @@
   <rect width="512" height="512" rx="112" fill="url(#bg)"/>
   <circle cx="256" cy="256" r="178" fill="none" stroke="url(#gold)" stroke-width="14"/>
   <circle cx="256" cy="256" r="154" fill="none" stroke="#b08a45" stroke-opacity=".5" stroke-width="3"/>
-  <text x="256" y="262" text-anchor="middle" dominant-baseline="central" font-family="'Frank Ruhl Libre', 'David', serif" font-weight="700" font-size="230" fill="#5e4330">ד</text>
+  <text x="256" y="262" text-anchor="middle" dominant-baseline="central" font-family="'Frank Ruhl Libre', 'David', serif" font-weight="700" font-size="146" fill="#5e4330">דודו</text>
 </svg>
