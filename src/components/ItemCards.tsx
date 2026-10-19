@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, type CSSProperties } from 'react';
 import { Link } from 'react-router';
 import type { ItemSummary } from '../../shared/types';
 import { KIND_LABELS, STORY_TYPE_LABEL } from '../../shared/constants';
@@ -91,7 +91,7 @@ export function VideoCard({ item, onPlay }: { item: ItemSummary; onPlay?: () => 
         )}
         {item.externalVideo && <span className="media-card__source">Drive</span>}
         <span className="media-card__play" aria-hidden="true">
-          <Icon name="play" size={20} />
+          <Icon name="play" size={15} />
         </span>
         {o?.duration ? <span className="media-card__dur">{formatDuration(o.duration)}</span> : null}
       </span>
@@ -136,9 +136,9 @@ export function AudioCard({ item }: { item: ItemSummary }) {
   );
 }
 
-export function StoryCard({ item }: { item: ItemSummary }) {
+export function StoryCard({ item, className, style }: { item: ItemSummary; className?: string; style?: CSSProperties }) {
   return (
-    <Link to={`/item/${item.id}`} className="card story-card">
+    <Link to={`/item/${item.id}`} className={`card story-card ${className ?? ''}`} style={style}>
       {item.storyType && <span className="badge">{STORY_TYPE_LABEL[item.storyType]}</span>}
       <span className="story-card__title">{item.title}</span>
       {item.excerpt && <span className="story-card__excerpt">{item.excerpt}</span>}
@@ -155,19 +155,16 @@ export function StoryCard({ item }: { item: ItemSummary }) {
   );
 }
 
+/** תמונת ברירת המחדל של מסמכים — מוגשת רק למשתמשים מחוברים */
+const DOCUMENT_COVER_URL = '/api/assets/document-cover';
+
 export function DocumentCard({ item }: { item: ItemSummary }) {
   const src = previewUrl(item);
-  const o = originalOf(item);
-  const isPdf = o?.mime === 'application/pdf';
   return (
     <Link to={`/item/${item.id}`} className="card doc-card">
-      <span className="doc-card__sheet" aria-hidden="true">
-        {src ? <img src={src} alt="" loading="lazy" decoding="async" /> : (
-          <span className="doc-card__icon">
-            <Icon name="document" size={34} />
-            {isPdf ? 'PDF' : o?.mime.split('/')[1]?.toUpperCase()}
-          </span>
-        )}
+      {/* מסמך עם סריקה או תמונה מקדימה — מוצג כמות שהוא; אחרת (למשל PDF) — תמונת ברירת המחדל הקבועה */}
+      <span className={`doc-card__sheet ${src ? '' : 'doc-card__sheet--cover'}`} aria-hidden="true">
+        <img src={src ?? DOCUMENT_COVER_URL} alt="" loading="lazy" decoding="async" />
       </span>
       <span className="doc-card__body">
         <span className="card__title">{item.title}</span>

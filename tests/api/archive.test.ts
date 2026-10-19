@@ -387,6 +387,19 @@ describe('כותרות תמונות', () => {
   });
 });
 
+describe('תמונת ברירת המחדל של מסמכים', () => {
+  it('מוגשת רק למשתמשים מחוברים', async () => {
+    const admin = await setupAdmin();
+    const res = await admin.get('/api/assets/document-cover');
+    expect(res.status).toBe(200);
+    expect(res.headers.get('content-type')).toBe('image/webp');
+    expect(res.headers.get('cache-control')).toContain('private');
+    const bytes = new Uint8Array(await res.arrayBuffer());
+    expect(String.fromCharCode(...bytes.slice(0, 4))).toBe('RIFF');
+    expect((await new Client().get('/api/assets/document-cover')).status).toBe(401);
+  });
+});
+
 describe('סדר אקראי בגלריה', () => {
   it('אותו seed — סדר יציב בין עמודים בלי כפילויות או חוסרים; seed אחר — סדר אחר', async () => {
     const admin = await setupAdmin();

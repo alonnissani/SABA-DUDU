@@ -144,6 +144,16 @@ test('העלאת סרטון ומסמך', async ({ page }) => {
   await page.getByLabel('תיאור (לא חובה)').fill('הזמנה מודפסת למסיבת יום ההולדת');
   await page.getByRole('button', { name: 'שמירה' }).click();
   await expect(page).toHaveURL(/\/c\/document$/, { timeout: 30_000 });
+  // PDF בלי תמונה מקדימה — תמונת ברירת המחדל הקבועה, ביחס המקורי שלה (2:3), בלי מתיחה
+  const cover = page.locator('.doc-card__sheet--cover img');
+  await expect(cover).toHaveCount(1);
+  await expect.poll(() => cover.evaluate((el: HTMLImageElement) => el.naturalWidth)).toBeGreaterThan(0);
+  const c = await cover.evaluate((el: HTMLImageElement) => {
+    const r = el.getBoundingClientRect();
+    return { box: r.width / r.height, natural: el.naturalWidth / el.naturalHeight };
+  });
+  expect(Math.abs(c.box - 2 / 3)).toBeLessThan(0.02);
+  expect(Math.abs(c.natural - 2 / 3)).toBeLessThan(0.02);
   await page.locator('.doc-card').first().click();
   await expect(page.locator('iframe.doc-view__frame')).toBeVisible();
   await shot(page, '10-document-page');
@@ -305,6 +315,8 @@ test('״זיכרון מסבא״ מציג תמונה אנכית ואופקית ב
         // היחס המוצג זהה ליחס המקורי — כלומר אין חיתוך
         expect(Math.abs(m.rw / m.rh - m.nw / m.nh)).toBeLessThan(0.03);
         expect(m.rw).toBeLessThanOrEqual(m.vw);
+        // הכרטיס כולו קומפקטי — כולל הכותרת, הפרטים והכפתור
+        expect((await page.locator('.memory').boundingBox())!.height).toBeLessThan(420);
         const shape = m.nh > m.nw ? 'portrait' : 'landscape';
         if (!seen.has(shape)) {
           seen.add(shape);
@@ -404,14 +416,26 @@ test('גלריה: סדר אקראי בכל כניסה, טעינה הדרגתית
 test('סרטונים: חלונית צפייה ביחס המקורי, בלי מסך מלא כפוי; מסך מלא דרך הנגן', async ({ page }) => {
   await login(page);
   await page.goto('/c/video');
-  // 2 כרטיסים בשורה ב-390px
-  const cols = await page.locator('.grid--media').evaluate((el) => getComputedStyle(el).gridTemplateColumns.split(' ').length);
-  expect(cols).toBe(2);
+  // כרטיסים קומפקטיים: 3 בשורה ב-390px, 2 במסך צר מאוד; תמונה מקדימה ביחס 16:9 וכותרת בשורה אחת
+  const cols = () => page.locator('.grid--media').evaluate((el) => getComputedStyle(el).gridTemplateColumns.split(' ').length);
+  expect(await cols()).toBe(3);
+  const thumb = await page.locator('.media-card__thumb').first().boundingBox();
+  expect(Math.abs(thumb!.width / thumb!.height - 16 / 9)).toBeLessThan(0.05);
+  expect(await page.locator('.media-card .card__title').first().evaluate((el) => getComputedStyle(el).whiteSpace)).toBe('nowrap');
+  await page.setViewportSize({ width: 340, height: 844 });
+  expect(await cols()).toBe(2);
+  await page.setViewportSize({ width: 390, height: 844 });
   // לחיצה על כרטיס — חלונית צפייה בתוך האתר, בלי מסך מלא כפוי
   await page.locator('.media-card', { hasNot: page.locator('.media-card__source') }).first().click();
   const tv = page.locator('.theater video');
   await expect(tv).toBeVisible();
   expect(await page.evaluate(() => document.fullscreenElement)).toBeNull();
+  // נגן אחד בלבד, בלי שום שכבה מעליו
+  await expect(page.locator('.theater__frame > *')).toHaveCount(1);
+  expect(await page.locator('.theater__frame').evaluate((f) => {
+    const r = f.getBoundingClientRect();
+    return document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2)?.tagName;
+  })).toBe('VIDEO');
   await tv.evaluate((v: HTMLVideoElement) => (v.readyState >= 1 ? null : new Promise((r) => v.addEventListener('loadedmetadata', r))));
   const t = await tv.evaluate((v: HTMLVideoElement) => {
     const r = v.getBoundingClientRect();
@@ -461,6 +485,11 @@ test('סרטונים: חלונית צפייה ביחס המקורי, בלי מס
   await page.locator('.media-card', { has: page.locator('.media-card__source') }).first().click();
   const iframe = page.locator('.theater__frame iframe');
   await expect(iframe).toBeVisible();
+  await expect(page.locator('.theater__frame > *')).toHaveCount(1);
+  expect(await page.locator('.theater__frame').evaluate((f) => {
+    const r = f.getBoundingClientRect();
+    return document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2)?.tagName;
+  })).toBe('IFRAME');
   expect(await iframe.getAttribute('allowfullscreen')).not.toBeNull();
   expect(await page.evaluate(() => document.fullscreenElement)).toBeNull();
   await expect(page.getByRole('link', { name: 'פתיחה ב-Google Drive' })).toHaveCount(1);
@@ -707,6 +736,30 @@ test('סרטונים וסיפורים: סדר אקראי בכל כניסה, בל
   await expect(page.locator('.story-card')).toHaveCount(totals.story);
   const hrefs = await page.locator('.story-card').evaluateAll((els) => els.map((e) => e.getAttribute('href') ?? e.querySelector('a')?.getAttribute('href')));
   expect(new Set(hrefs).size).toBe(totals.story);
+
+  // לוח מרחף: עמודה אחת בטלפון, בלי חפיפה בין כרטיסים, בלי גלילה אופקית, טקסט קריא
+  await expect(page.locator('.story-board__col')).toHaveCount(1);
+  const layout = await page.locator('.story-card').evaluateAll((els) => {
+    const boxes = els.map((e) => {
+      const r = e.getBoundingClientRect();
+      return { top: r.top + scrollY, bottom: r.bottom + scrollY };
+    });
+    let overlap = 0;
+    // בעמודה אחת — הכרטיסים זה מתחת לזה (סובלנות קטנה בגלל ההטיה)
+    for (let i = 1; i < boxes.length; i++) overlap = Math.max(overlap, boxes[i - 1].bottom - boxes[i].top);
+    const fonts = els.flatMap((e) => Array.from(e.querySelectorAll('.story-card__title, .story-card__excerpt')).map((t) => parseFloat(getComputedStyle(t).fontSize)));
+    const tilts = new Set(els.map((e) => (e as HTMLElement).style.getPropertyValue('--tilt')));
+    return { overlap, minFont: Math.min(...fonts), tilts: tilts.size };
+  });
+  expect(layout.overlap).toBeLessThan(6);
+  expect(layout.minFont).toBeGreaterThanOrEqual(15);
+  expect(layout.tilts).toBeGreaterThan(2);
+  await noHorizontalScroll(page);
+  // כפתורי הסינון קומפקטיים
+  await page.evaluate(() => scrollTo(0, 0));
+  for (const h of await page.locator('.filters--compact select').evaluateAll((els) => els.map((e) => e.getBoundingClientRect().height))) expect(h).toBeLessThanOrEqual(36);
+  await page.waitForTimeout(600);
+  await page.screenshot({ path: path.join(SHOTS, '39-stories-board.png') });
 });
 
 test('מסך פתיחה: זיכרונות מרחפים, לא חוסמים, וחזרה מהכותרת בלי התנתקות', async ({ page }) => {
@@ -728,6 +781,17 @@ test('מסך פתיחה: זיכרונות מרחפים, לא חוסמים, וח�
   // התמונות שקופות (WebP עם alpha) ומונפשות ב-transform
   expect(await page.locator('.mem__drift').first().evaluate((e) => getComputedStyle(e).animationName)).toBe('mem-drift');
   expect(await page.locator('.orbit__layer').evaluate((e) => getComputedStyle(e).pointerEvents)).toBe('none');
+  // התנועה מורגשת כבר בשניות הראשונות
+  const centers = () => mems.evaluateAll((els) => els.map((e) => {
+    const r = e.getBoundingClientRect();
+    return [r.left + r.width / 2, r.top + r.height / 2];
+  }));
+  const c0 = await centers();
+  await page.waitForTimeout(2000);
+  const c1 = await centers();
+  const moved = c0.map((p, i) => Math.hypot(p[0] - c1[i][0], p[1] - c1[i][1]));
+  expect(moved.filter((d) => d > 4).length).toBeGreaterThanOrEqual(5);
+  expect(Math.max(...moved)).toBeGreaterThan(8);
   // אף אלמנט לא מסתיר את התמונה המרכזית או את כפתור הכניסה
   const overlap = await page.evaluate(() => {
     const inter = (a: DOMRect, b: DOMRect) => Math.max(0, Math.min(a.right, b.right) - Math.max(a.left, b.left)) * Math.max(0, Math.min(a.bottom, b.bottom) - Math.max(a.top, b.top));
@@ -782,10 +846,16 @@ test.describe('מחשב', () => {
     expect(await page.locator('.gallery').evaluate((el) => getComputedStyle(el).columnCount)).toBe('7');
     await shot(page, '18-desktop-gallery');
     await page.goto('/c/video');
-    expect(await page.locator('.grid--media').evaluate((el) => getComputedStyle(el).gridTemplateColumns.split(' ').length)).toBe(4);
+    expect(await page.locator('.grid--media').evaluate((el) => getComputedStyle(el).gridTemplateColumns.split(' ').length)).toBe(6);
     await shot(page, '30-desktop-videos');
     await page.setViewportSize({ width: 768, height: 1000 });
-    expect(await page.locator('.grid--media').evaluate((el) => getComputedStyle(el).gridTemplateColumns.split(' ').length)).toBe(3);
+    expect(await page.locator('.grid--media').evaluate((el) => getComputedStyle(el).gridTemplateColumns.split(' ').length)).toBe(4);
+    await page.goto('/c/story');
+    await expect(page.locator('.story-board__col')).toHaveCount(2);
+    await page.setViewportSize({ width: 1366, height: 900 });
+    await expect(page.locator('.story-board__col')).toHaveCount(3);
+    await page.waitForTimeout(700);
+    await shot(page, '40-desktop-stories');
     await page.setViewportSize({ width: 1366, height: 900 });
     await page.goto('/settings/backups');
     await shot(page, '19-desktop-backups');

@@ -234,7 +234,8 @@ export function VideoTheater({ item, onClose }: { item: ItemSummary; onClose: ()
       </div>
       {/* לחיצה על הרקע סביב הנגן סוגרת */}
       <div className="theater__stage" onClick={(e) => e.target === e.currentTarget && close()}>
-        {/* אנכי — מנצל את הגובה; אופקי — את הרוחב; היחס נשמר, בלי חיתוך ובלי מתיחה */}
+        {/* אנכי — מנצל את הגובה; אופקי — את הרוחב; היחס נשמר, בלי חיתוך ובלי מתיחה.
+            בתוך המסגרת יש רק הנגן עצמו — בלי כפתורים או שכבות מעליו (גם לא מעל הנגן של Google Drive) */}
         <div
           className="theater__frame"
           data-ratio={r.toFixed(3)}
@@ -256,6 +257,7 @@ export function VideoTheater({ item, onClose }: { item: ItemSummary; onClose: ()
               controls
               autoPlay
               playsInline
+              preload="auto"
               onLoadedMetadata={(e) => {
                 const v = e.currentTarget;
                 if (v.videoWidth && v.videoHeight) setRatio(v.videoWidth / v.videoHeight);

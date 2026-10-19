@@ -912,6 +912,30 @@
 .select--sm {
   flex: 0 1 180px;
 }
+/* סינון קומפקטי (סיפורים): כפתורים קטנים בשורה אחת, או שתיים צפופות בטלפון */
+.filters--compact {
+  gap: 6px;
+  margin-bottom: 14px;
+}
+.filters--compact .select {
+  flex: 0 1 auto;
+  max-width: 100%;
+  min-width: 0;
+}
+.filters--compact .select select {
+  width: auto;
+  max-width: 100%;
+  min-height: 34px;
+  padding-block: 4px;
+  padding-inline: 12px 30px;
+  font-size: 0.85rem;
+  background-position: left 10px center;
+}
+.filters--compact .btn--text {
+  min-height: 34px;
+  padding: 4px 10px;
+  font-size: 0.85rem;
+}
 .load-more {
   display: flex;
   justify-content: center;
@@ -1799,13 +1823,13 @@
 }
 .media-card__source {
   position: absolute;
-  top: 8px;
-  right: 8px;
-  padding: 2px 10px;
+  top: 4px;
+  right: 4px;
+  padding: 1px 6px;
   border-radius: 99px;
   background: rgba(255, 250, 240, 0.92);
   color: var(--brown-deep);
-  font-size: 0.75rem;
+  font-size: 0.64rem;
   font-weight: 700;
 }
 .source-switch {

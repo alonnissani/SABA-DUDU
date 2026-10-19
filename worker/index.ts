@@ -11,6 +11,7 @@ import { uploadRoutes } from './routes/uploads';
 import { fileRoutes } from './routes/files';
 import { searchRoutes } from './routes/search';
 import { adminRoutes } from './routes/admin';
+import { assetRoutes } from './routes/assets';
 
 const app = new Hono<AppEnv>().basePath('/api');
 
@@ -32,6 +33,7 @@ app.route('/auth', authRoutes);
 // מכאן והלאה — משתמשים מחוברים בלבד
 app.use('/uploads/*', userGuard);
 app.use('/files/*', userGuard);
+app.use('/assets/*', userGuard);
 app.use('/search', userGuard);
 app.use('/settings', userGuard);
 app.use('/admin/*', adminGuard);
@@ -39,6 +41,7 @@ app.use('/admin/*', adminGuard);
 app.get('/settings', async (c) => c.json(await getSiteSettings(c.env.DB)));
 app.route('/uploads', uploadRoutes);
 app.route('/files', fileRoutes);
+app.route('/assets', assetRoutes);
 app.route('/search', searchRoutes);
 app.route('/admin', adminRoutes);
 app.route('/', itemRoutes);

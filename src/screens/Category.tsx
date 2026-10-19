@@ -7,7 +7,8 @@ import { useApp, useLoad, useToast } from '../state';
 import { EmptyState, ErrorBox, Modal, PageHeader, Spinner } from '../components/Common';
 import { accessibleTitle } from '../lib/media';
 import { Icon, KIND_ICON } from '../components/Icon';
-import { AudioCard, DocumentCard, PhotoTile, StoryCard, VideoCard } from '../components/ItemCards';
+import { AudioCard, DocumentCard, PhotoTile, VideoCard } from '../components/ItemCards';
+import { StoryBoard } from '../components/StoryBoard';
 import { Lightbox } from '../components/Lightbox';
 import { VideoTheater } from '../components/VideoPlayer';
 
@@ -160,7 +161,7 @@ function CategoryList({ kind }: { kind: ItemKind }) {
       />
 
       {(total > 0 || filtered) && (
-        <div className="filters" role="group" aria-label="מיון וסינון">
+        <div className={`filters ${kind === 'story' ? 'filters--compact' : ''}`} role="group" aria-label="מיון וסינון">
           <label className="select">
             <span className="visually-hidden">מיון</span>
             <select value={sort} onChange={(e) => setParam('sort', e.target.value === defaultSort ? '' : e.target.value)}>
@@ -249,7 +250,7 @@ function CategoryList({ kind }: { kind: ItemKind }) {
           )}
           {kind === 'video' && <div className="grid grid--media">{items.map((it) => <VideoCard key={it.id} item={it} onPlay={() => playVideo(it)} />)}</div>}
           {kind === 'audio' && <div className="list">{items.map((it) => <AudioCard key={it.id} item={it} />)}</div>}
-          {kind === 'story' && <div className="grid grid--stories">{items.map((it) => <StoryCard key={it.id} item={it} />)}</div>}
+          {kind === 'story' && <StoryBoard items={items} />}
           {kind === 'document' && <div className="grid grid--docs">{items.map((it) => <DocumentCard key={it.id} item={it} />)}</div>}
           {hasMore && (
             <div className="load-more" ref={sentinel}>
