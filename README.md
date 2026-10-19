@@ -84,15 +84,22 @@ npm run e2e:reset && npm run test:e2e    # 12 בדיקות דפדפן (צילו�
 
 ### אפשרות א׳: חיבור GitHub (Workers Builds), גם מהטלפון
 
-1. ב-Cloudflare Dashboard: **Workers & Pages ← Create ← Import a repository** ← מתחברים ל-GitHub ובוחרים את `alonnissani/SABA-DUDU`.
-2. הגדרות ה-Build:
-   - **Production branch:** `main`
-   - **Build command:** `npm run build`
-   - **Deploy command:** `npm run cf:deploy`
+1. ב-Cloudflare Dashboard: **Workers & Pages ← Create ← Import a repository** ← מתחברים ל-GitHub ובוחרים את `alonnissani/SABA-DUDU`. אם ה-Worker כבר מחובר: ה-Worker ← **Settings ← Builds**.
+2. הגדרות ה-Build (בדיוק כך):
+
+   | שדה | ערך |
+   |---|---|
+   | Production branch | `main` |
+   | Build command | `npm run build` |
+   | Deploy command | `npm run cf:deploy` |
+   | Non-production branch deploy command | `npm run cf:preview` |
+   | Root directory (Path) | ריק (שורש המאגר) |
+
+   **למה זה חשוב:** `npm run build` מריץ את Vite, שבונה את האתר לתיקייה `dist/client` וכותב את הגדרות הפריסה הסופיות (`dist/saba_dudu/wrangler.json`, כולל תיקיית ה-assets). בלי שלב הבנייה wrangler לא מוצא את הקבצים הסטטיים, ולכן אין לשים `assets.directory` ב-`wrangler.jsonc`. `cf:deploy` פורס ומעדכן את טבלאות בסיס הנתונים. גם `cf:deploy` וגם `cf:preview` בונים בעצמם אם הבנייה לא רצה, כרשת ביטחון.
 3. אחרי שהפריסה הראשונה מסתיימת: ב-Worker ← **Settings ← Variables and Secrets ← Add** ← סוג **Secret**, שם `SETUP_TOKEN`, ובערך מחרוזת ארוכה ואקראית. הקוד הזה נדרש רק פעם אחת, ליצירת המנהל הראשון, ולא נשמר בקוד.
 4. נכנסים לכתובת `https://saba-dudu.<חשבון>.workers.dev`, יוצרים מנהל עם קוד ההקמה, מעלים את התמונה הראשית ושולחים הזמנות לבני המשפחה.
 
-מעכשיו כל מיזוג ל-`main` יפרוס גרסה חדשה. בדיקות האוטומטיות רצות ב-GitHub Actions על כל push (`.github/workflows/ci.yml`).
+מעכשיו כל מיזוג ל-`main` יפרוס גרסה חדשה, וכל PR יקבל גרסת preview. הבדיקות האוטומטיות רצות ב-GitHub Actions על כל push (`.github/workflows/ci.yml`).
 
 ### אפשרות ב׳: מהמחשב
 
