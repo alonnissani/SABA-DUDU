@@ -1,4 +1,4 @@
-import { cloneElement, isValidElement, useEffect, useId, useRef, type ReactElement, type ReactNode } from 'react';
+import { cloneElement, isValidElement, useEffect, useId, useRef, useState, type ReactElement, type ReactNode } from 'react';
 import { Icon, type IconName } from './Icon';
 
 export function Spinner({ label = 'טוען…' }: { label?: string }) {
@@ -140,4 +140,12 @@ export function Ornament() {
       <circle cx="116" cy="8" r="1.6" fill="currentColor" />
     </svg>
   );
+}
+
+/** תמונה עם חלופה אם הטעינה נכשלת (למשל תמונה ממוזערת של Google Drive לקובץ שאינו משותף) */
+export function SafeImg({ src, fallback, ...rest }: { src: string; fallback: ReactNode } & Omit<React.ImgHTMLAttributes<HTMLImageElement>, 'src'>) {
+  const [failed, setFailed] = useState(false);
+  useEffect(() => setFailed(false), [src]);
+  if (failed) return <>{fallback}</>;
+  return <img src={src} onError={() => setFailed(true)} {...rest} />;
 }

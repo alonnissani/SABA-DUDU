@@ -1,5 +1,5 @@
 import type {
-  CommentInfo, FileInfo, FileRole, ItemDetail, ItemKind, ItemSummary, StoryType, TranscriptStatus,
+  CommentInfo, ExternalVideo, FileInfo, FileRole, ItemDetail, ItemKind, ItemSummary, StoryType, TranscriptStatus,
 } from '../../shared/types';
 import { placeholders } from './http';
 
@@ -68,10 +68,11 @@ export async function toSummaries(db: D1Database, rows: ItemRow[]): Promise<Item
   const files = new Map<string, FileInfo[]>();
   const tags = new Map<string, string[]>();
   const counts = new Map<string, number>();
+  const external = new Map<string, ExternalVideo>();
 
   for (const part of chunks(ids)) {
     const ph = placeholders(part.length);
-    const [f, t, c] = await db.batch([
+    const [f, t, c, x] = await db.batch([
       db.prepare(
         `SELECT id, item_id, role, mime, size, original_name, width, height, duration FROM files
          WHERE item_id IN (${ph}) ORDER BY position, created_at`,
@@ -83,6 +84,7 @@ export async function toSummaries(db: D1Database, rows: ItemRow[]): Promise<Item
       db.prepare(
         `SELECT item_id, COUNT(*) AS n FROM comments WHERE deleted_at IS NULL AND item_id IN (${ph}) GROUP BY item_id`,
       ).bind(...part),
+      db.prepare(`SELECT item_id, provider, file_id, url FROM external_media WHERE item_id IN (${ph})`).bind(...part),
     ]);
     for (const row of f.results as unknown as FileRow[]) {
       const list = files.get(row.item_id) ?? [];
@@ -95,6 +97,9 @@ export async function toSummaries(db: D1Database, rows: ItemRow[]): Promise<Item
       tags.set(row.item_id, list);
     }
     for (const row of c.results as unknown as { item_id: string; n: number }[]) counts.set(row.item_id, row.n);
+    for (const row of x.results as unknown as { item_id: string; provider: 'gdrive'; file_id: string; url: string }[]) {
+      external.set(row.item_id, { provider: row.provider, fileId: row.file_id, url: row.url });
+    }
   }
 
   return rows.map((r) => ({
@@ -111,6 +116,7 @@ export async function toSummaries(db: D1Database, rows: ItemRow[]): Promise<Item
     createdAt: r.created_at,
     createdBy: { id: r.created_by, name: r.creator_name },
     files: files.get(r.id) ?? [],
+    externalVideo: external.get(r.id) ?? null,
     commentCount: counts.get(r.id) ?? 0,
     deletedAt: r.deleted_at,
   }));

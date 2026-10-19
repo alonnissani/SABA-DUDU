@@ -233,7 +233,7 @@ adminRoutes.get('/stats', async (c) => {
 adminRoutes.get('/export', async (c) => {
   const admin = requireAdmin(c);
   const db = c.env.DB;
-  const [items, files, tags, itemTags, comments, links, users, settings] = await db.batch([
+  const [items, files, tags, itemTags, comments, links, users, settings, external] = await db.batch([
     db.prepare('SELECT * FROM items ORDER BY created_at'),
     db.prepare('SELECT id, item_id, role, r2_key, mime, size, sha256, original_name, width, height, duration, created_by, created_at FROM files ORDER BY created_at'),
     db.prepare('SELECT * FROM tags'),
@@ -242,6 +242,7 @@ adminRoutes.get('/export', async (c) => {
     db.prepare('SELECT * FROM item_links'),
     db.prepare('SELECT id, name, email, role, created_at, disabled_at FROM users'),
     db.prepare('SELECT key, value FROM settings'),
+    db.prepare('SELECT * FROM external_media'),
   ]);
   const origin = new URL(c.req.url).origin;
   await audit(db, admin.id, 'archive.export', null, null);
@@ -257,6 +258,7 @@ adminRoutes.get('/export', async (c) => {
     links: links.results,
     users: users.results,
     settings: settings.results,
+    externalMedia: external.results,
   };
   return new Response(JSON.stringify(manifest, null, 2), {
     headers: {

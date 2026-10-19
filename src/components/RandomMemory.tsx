@@ -3,9 +3,9 @@ import { Link } from 'react-router';
 import type { ItemSummary } from '../../shared/types';
 import { KIND_LABELS, STORY_TYPE_LABEL } from '../../shared/constants';
 import { api } from '../api/client';
-import { formatDuration, itemDateLabel, originalOf, previewUrl } from '../lib/media';
+import { displayTitle, formatDuration, itemDateLabel, originalOf, previewUrl } from '../lib/media';
 import { Icon, KIND_ICON } from './Icon';
-import { ErrorBox } from './Common';
+import { ErrorBox, SafeImg } from './Common';
 
 const HISTORY_KEY = 'saba:random-history';
 const HISTORY_MAX = 25;
@@ -102,7 +102,7 @@ export function RandomMemory() {
               <Icon name={KIND_ICON[item.kind]} size={16} />
               {item.kind === 'story' && item.storyType ? STORY_TYPE_LABEL[item.storyType] : KIND_LABELS[item.kind].singular}
             </span>
-            <span className="memory__title">{item.title}</span>
+            {displayTitle(item) && <span className="memory__title">{displayTitle(item)}</span>}
             {item.kind === 'story' && item.excerpt && <span className="memory__excerpt">״{item.excerpt}״</span>}
             {item.kind !== 'story' && item.description && <span className="memory__excerpt">{item.description}</span>}
             <span className="memory__meta">
@@ -123,10 +123,16 @@ export function RandomMemory() {
 function MemoryPreview({ item }: { item: ItemSummary }) {
   const src = previewUrl(item);
   const o = originalOf(item);
+  const iconBox = (
+    <span className={`memory__media memory__media--icon memory__media--${item.kind}`} aria-hidden="true">
+      <Icon name={KIND_ICON[item.kind]} size={44} />
+    </span>
+  );
   if (src) {
+    // התמונה מוצגת במלואה (contain), ביחס הגובה-רוחב המקורי שלה
     return (
-      <span className={`memory__media memory__media--${item.kind}`}>
-        <img src={src} alt="" decoding="async" />
+      <span className={`memory__media memory__media--${item.kind} memory__media--fit`}>
+        <SafeImg src={src} alt="" decoding="async" fallback={iconBox} />
         {item.kind === 'video' && (
           <span className="memory__play" aria-hidden="true">
             <Icon name="play" size={28} />

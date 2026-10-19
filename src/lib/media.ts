@@ -1,5 +1,7 @@
 import type { FileInfo, ItemSummary } from '../../shared/types';
 import { fileUrl } from '../api/client';
+import { driveThumbUrl } from '../../shared/drive';
+import { isTechnicalTitle } from '../../shared/titles';
 
 /** פורמטים שרוב הדפדפנים יודעים להציג. HEIC/TIFF מוצגים רק בחלק מהדפדפנים. */
 const WEB_IMAGES = ['image/jpeg', 'image/png', 'image/webp', 'image/gif', 'image/avif'];
@@ -9,7 +11,9 @@ export const previewOf = (item: Pick<ItemSummary, 'files'>): FileInfo | undefine
   item.files.find((f) => f.role === 'thumb' || f.role === 'poster');
 
 /** כתובת לתמונה קטנה לתצוגה בכרטיס — ממוזערת אם יש, אחרת המקור אם הדפדפן יכול להציגו. */
-export function previewUrl(item: Pick<ItemSummary, 'files' | 'kind'>): string | null {
+export function previewUrl(item: Pick<ItemSummary, 'files' | 'kind' | 'externalVideo'>): string | null {
+  // סרטון מ-Google Drive: תמונה ממוזערת מגוגל (זמינה רק אם הקובץ משותף; אחרת מוצג אייקון)
+  if (item.externalVideo) return driveThumbUrl(item.externalVideo.fileId);
   const p = previewOf(item);
   if (p) return fileUrl(p.id);
   const o = originalOf(item);
@@ -140,3 +144,15 @@ export function itemDateLabel(item: Pick<ItemSummary, 'dateText' | 'dateYear'>):
 }
 
 export const fileTitle = (name: string) => name.replace(/\.[^.]+$/, '').replace(/[_]+/g, ' ').trim();
+
+/**
+ * הכותרת להצגה. בתמונות, כותרת שהיא שם קובץ, מספר או מזהה טכני לא מוצגת (מחזיר null).
+ * הכותרת השמורה עצמה לא משתנה.
+ */
+export function displayTitle(item: Pick<ItemSummary, 'kind' | 'title' | 'files'>): string | null {
+  if (item.kind !== 'photo') return item.title;
+  return isTechnicalTitle(item.title, originalOf(item)?.originalName) ? null : item.title;
+}
+
+/** תווית נגישות לפריט — גם כשאין כותרת מוצגת */
+export const accessibleTitle = (item: Pick<ItemSummary, 'kind' | 'title' | 'files'>) => displayTitle(item) ?? 'תמונה';

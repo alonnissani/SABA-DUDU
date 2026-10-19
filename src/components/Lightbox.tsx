@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router';
 import type { ItemSummary } from '../../shared/types';
 import { fileUrl } from '../api/client';
-import { displayableImage, originalOf, previewUrl } from '../lib/media';
+import { accessibleTitle, displayTitle, displayableImage, originalOf, previewUrl } from '../lib/media';
 import { Icon } from './Icon';
 import { ItemMeta, TagList } from './ItemCards';
 
@@ -109,7 +109,7 @@ export function Lightbox({ items, index, onIndex, onClose }: { items: ItemSummar
   };
 
   return (
-    <div className="lightbox" role="dialog" aria-modal="true" aria-label={`תמונה: ${item.title}`}>
+    <div className="lightbox" role="dialog" aria-modal="true" aria-label={displayTitle(item) ? `תמונה: ${displayTitle(item)}` : 'תמונה'}>
       <div className="lightbox__bar">
         <button ref={closeRef} className="lb-btn" onClick={onClose} aria-label="סגירה">
           <Icon name="close" />
@@ -147,7 +147,7 @@ export function Lightbox({ items, index, onIndex, onClose }: { items: ItemSummar
         <div className="lightbox__img" style={{ transform: `translate(${pos.x + swipe}px, ${pos.y}px) scale(${scale})`, transition: gesture.current ? 'none' : undefined }}>
           {preview && !loaded && <img src={preview} alt="" className="lightbox__preview" draggable={false} />}
           {full ? (
-            <img key={full} src={full} alt={item.title} draggable={false} onLoad={() => setLoaded(true)} onError={() => setLoaded(false)} style={{ opacity: loaded || !preview ? 1 : 0 }} />
+            <img key={full} src={full} alt={accessibleTitle(item)} draggable={false} onLoad={() => setLoaded(true)} onError={() => setLoaded(false)} style={{ opacity: loaded || !preview ? 1 : 0 }} />
           ) : (
             !preview && <p className="lightbox__unsupported">לא ניתן להציג את הקובץ בדפדפן. אפשר להוריד את קובץ המקור.</p>
           )}
@@ -167,7 +167,7 @@ export function Lightbox({ items, index, onIndex, onClose }: { items: ItemSummar
 
       {showInfo && (
         <div className="lightbox__info">
-          <h2>{item.title}</h2>
+          {displayTitle(item) && <h2>{displayTitle(item)}</h2>}
           {item.description && <p className="lightbox__desc">{item.description}</p>}
           {item.people && <p className="lightbox__people">בתמונה: {item.people}</p>}
           <ItemMeta item={item} />

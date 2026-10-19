@@ -320,3 +320,69 @@ describe('סיפורים, הגדרות וגיבוי', () => {
     expect((await c.post('/api/auth/reset', { token, password: 'another-pass' })).status).toBe(410);
   });
 });
+
+describe('סרטון מקישור Google Drive', () => {
+  const DRIVE_ID = '1AbCdEfGhIjKlMnOpQrStUvWxYz012345';
+
+  it('נשמר בלי קובץ ב-R2, ומזהה את הקובץ מצורות קישור שונות', async () => {
+    const admin = await setupAdmin();
+    const member = await inviteMember(admin);
+    for (const url of [
+      `https://drive.google.com/file/d/${DRIVE_ID}/view?usp=sharing`,
+      `https://drive.google.com/open?id=${DRIVE_ID}`,
+      `https://drive.google.com/uc?id=${DRIVE_ID}&export=download`,
+    ]) {
+      const res = await member.post('/api/items', { kind: 'video', title: 'מהדרייב', externalUrl: url });
+      expect(res.status, url).toBe(201);
+      const item = (await res.json()) as { files: unknown[]; externalVideo: { fileId: string; url: string } };
+      expect(item.files).toHaveLength(0);
+      expect(item.externalVideo).toEqual({ provider: 'gdrive', fileId: DRIVE_ID, url: `https://drive.google.com/file/d/${DRIVE_ID}/view` });
+    }
+    const objects = await env.MEDIA.list();
+    expect(objects.objects).toHaveLength(0);
+    const list = (await (await member.get('/api/items?kind=video')).json()) as { items: { externalVideo: unknown }[] };
+    expect(list.items).toHaveLength(3);
+    expect(list.items[0].externalVideo).not.toBeNull();
+  });
+
+  it('דוחה קישור שאינו Google Drive, וקישור יחד עם קובץ', async () => {
+    const admin = await setupAdmin();
+    for (const url of ['https://example.com/file/d/abc/view', 'javascript:alert(1)', 'https://drive.google.com/drive/folders/', 'לא קישור']) {
+      expect((await admin.post('/api/items', { kind: 'video', title: 'x', externalUrl: url })).status, url).toBe(400);
+    }
+    const up = (await (await upload(admin, 'video', MP4_HEAD, 'a.mp4', 'video/mp4')).json()) as { id: string };
+    const both = await admin.post('/api/items', { kind: 'video', title: 'x', files: [{ id: up.id }], externalUrl: `https://drive.google.com/file/d/${DRIVE_ID}/view` });
+    expect(both.status).toBe(400);
+  });
+
+  it('מנהל יכול להחליף את הקישור; משתמש רגיל לא', async () => {
+    const admin = await setupAdmin();
+    const member = await inviteMember(admin);
+    const item = (await (await member.post('/api/items', { kind: 'video', title: 'v', externalUrl: `https://drive.google.com/file/d/${DRIVE_ID}/view` })).json()) as { id: string };
+    const NEW_ID = '9ZyXwVuTsRqPoNmLkJiHgFeDcBa98765';
+    expect((await member.patch(`/api/items/${item.id}`, { externalUrl: `https://drive.google.com/file/d/${NEW_ID}/view` })).status).toBe(403);
+    const res = await admin.patch(`/api/items/${item.id}`, { externalUrl: `https://drive.google.com/file/d/${NEW_ID}/view?usp=drive_link` });
+    expect(res.status).toBe(200);
+    expect(((await res.json()) as { externalVideo: { fileId: string } }).externalVideo.fileId).toBe(NEW_ID);
+    expect((await admin.patch(`/api/items/${item.id}`, { externalUrl: 'https://example.com' })).status).toBe(400);
+  });
+
+  it('סרטון שהועלה כקובץ ממשיך לעבוד כרגיל', async () => {
+    const admin = await setupAdmin();
+    const item = await createMedia(admin, 'video', MP4_HEAD, 'old.mp4', 'video/mp4');
+    const detail = (await (await admin.get(`/api/items/${item.id}`)).json()) as { externalVideo: unknown; files: unknown[] };
+    expect(detail.externalVideo).toBeNull();
+    expect(detail.files).toHaveLength(1);
+  });
+});
+
+describe('כותרות תמונות', () => {
+  it('תמונה ללא כותרת נשמרת עם כותרת ריקה; לסוגים אחרים הכותרת חובה', async () => {
+    const admin = await setupAdmin();
+    const up = (await (await upload(admin, 'photo', PNG, 'IMG_8813.png', 'image/png')).json()) as { id: string };
+    const res = await admin.post('/api/items', { kind: 'photo', files: [{ id: up.id }] });
+    expect(res.status).toBe(201);
+    expect(((await res.json()) as { title: string }).title).toBe('');
+    expect((await admin.post('/api/items', { kind: 'story', body: 'x', storyType: 'family' })).status).toBe(400);
+  });
+});

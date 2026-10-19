@@ -65,6 +65,9 @@
   display: grid;
   grid-template-columns: repeat(5, 1fr);
 }
+.tabs--bottom {
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+}
 .tabs__tab {
   display: flex;
   flex-direction: column;
@@ -75,13 +78,16 @@
   padding: 6px 2px;
   color: var(--ink-soft);
   font-weight: 700;
-  font-size: 0.8rem;
+  font-size: clamp(0.68rem, 2.9vw, 0.8rem);
   text-decoration: none;
   position: relative;
   transition: color 0.2s;
 }
 .tabs__tab span {
+  max-width: 100%;
   white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 .tabs__tab.active {
   color: var(--brown-deep);
@@ -569,6 +575,22 @@
   width: 100%;
   height: 100%;
   object-fit: cover;
+}
+/* תמונה מלאה בלי חיתוך, ביחס המקורי — אנכית או אופקית. המסגרת נצמדת לתמונה. */
+.memory__media--fit {
+  aspect-ratio: auto;
+  justify-self: center;
+  width: fit-content;
+  max-width: 100%;
+  background: var(--paper-deep);
+}
+.memory__media--fit img {
+  display: block;
+  width: auto;
+  height: auto;
+  max-width: 100%;
+  max-height: min(62vh, 480px);
+  object-fit: contain;
 }
 .memory__media--icon {
   color: var(--gold);
@@ -1631,4 +1653,79 @@
 }
 .pick-grid__btn:hover {
   border-color: var(--gold);
+}
+
+/* ---------- סרטון מ-Google Drive ---------- */
+.drive-frame {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  border-radius: var(--r-md);
+  overflow: hidden;
+  background: #1d1611;
+  box-shadow: var(--shadow-lg);
+}
+.drive-frame iframe {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  border: 0;
+}
+.drive-frame--preview {
+  box-shadow: var(--shadow-sm);
+}
+.video-wrap__bar {
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.media-card__source {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  padding: 2px 10px;
+  border-radius: 99px;
+  background: rgba(255, 250, 240, 0.92);
+  color: var(--brown-deep);
+  font-size: 0.75rem;
+  font-weight: 700;
+}
+.source-switch {
+  display: grid;
+  gap: 10px;
+  margin-bottom: 16px;
+}
+@media (min-width: 640px) {
+  .source-switch {
+    grid-template-columns: 1fr 1fr;
+  }
+}
+.source-switch__opt {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-height: 64px;
+  padding: 12px 16px;
+  text-align: start;
+  border-radius: var(--r-md);
+  border: 1px solid var(--line-strong);
+  background: var(--card);
+  color: var(--brown-deep);
+  transition: border-color 0.2s, background 0.2s;
+}
+.source-switch__opt svg {
+  flex: none;
+  color: var(--gold);
+}
+.source-switch__opt span {
+  display: grid;
+}
+.source-switch__opt small {
+  color: var(--ink-soft);
+  font-size: 0.85rem;
+}
+.source-switch__opt.is-active {
+  border: 2px solid var(--gold);
+  background: #fffcf5;
+  box-shadow: 0 0 0 4px var(--gold-faint);
 }

@@ -13,12 +13,16 @@ test.use({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true
 
 async function expectTabsVisible(page: Page) {
   const tabs = page.locator('.tabs--bottom .tabs__tab');
-  await expect(tabs).toHaveCount(5);
-  const vh = page.viewportSize()!.height;
-  for (let i = 0; i < 5; i++) {
+  await expect(tabs).toHaveCount(6);
+  const { width: vw, height: vh } = page.viewportSize()!;
+  for (let i = 0; i < 6; i++) {
     const box = (await tabs.nth(i).boundingBox())!;
     expect(box.y + box.height).toBeLessThanOrEqual(vh);
     expect(box.x).toBeGreaterThanOrEqual(0);
+    expect(box.x + box.width).toBeLessThanOrEqual(vw + 0.5);
+    // הכיתוב לא נחתך
+    const clipped = await tabs.nth(i).locator('span').evaluate((el) => el.scrollWidth > el.clientWidth + 1);
+    expect(clipped).toBe(false);
   }
 }
 
@@ -193,6 +197,104 @@ test('זיכרון אקראי במסך הבית', async ({ page }) => {
   await shot(page, '14-home-memory');
   await page.locator('.memory__card').click();
   await expect(page).toHaveURL(/\/item\//);
+});
+
+test('לשונית ״בית״ בתפריט התחתון — מכל לשונית, עם חיווי', async ({ page }) => {
+  await login(page);
+  const nav = page.locator('.tabs--bottom');
+  await expect(nav.getByRole('link', { name: 'בית' })).toHaveAttribute('aria-current', 'page');
+  for (const label of ['תמונות', 'סרטונים', 'הקלטות', 'סיפורים', 'מסמכים']) {
+    await nav.getByRole('link', { name: label }).click();
+    await expect(nav.getByRole('link', { name: 'בית' })).not.toHaveAttribute('aria-current', 'page');
+    await nav.getByRole('link', { name: 'בית' }).click();
+    await expect(page).toHaveURL(/\/home$/);
+    await expect(page.getByRole('heading', { name: 'זיכרון מסבא' })).toBeVisible();
+    await expect(nav.getByRole('link', { name: 'בית' })).toHaveAttribute('aria-current', 'page');
+  }
+  // גם מדף פריט ומההגדרות
+  await page.goto('/settings');
+  await nav.getByRole('link', { name: 'בית' }).click();
+  await expect(page).toHaveURL(/\/home$/);
+  await page.setViewportSize({ width: 320, height: 640 });
+  await expectTabsVisible(page);
+  await noHorizontalScroll(page);
+  await page.screenshot({ path: path.join(SHOTS, '21-bottom-nav-320.png') });
+  await page.setViewportSize({ width: 390, height: 844 });
+});
+
+test('תמונה בלי כותרת מוצגת בלי מזהה טכני', async ({ page }) => {
+  await login(page);
+  await page.goto('/c/photo/new');
+  await page.locator('input[type=file]').setInputFiles(fx('IMG_8813.jpg'));
+  await expect(page.locator('.pending__title')).toHaveValue('');
+  await page.getByRole('button', { name: 'שמירה' }).click();
+  await expect(page).toHaveURL(/\/c\/photo$/, { timeout: 30_000 });
+  await expect(page.locator('.photo-tile')).toHaveCount(3);
+  const captions = await page.locator('.photo-tile__title').allTextContents();
+  expect(captions.sort()).toEqual(['ביום ההולדת ה-80', 'בחצר הבית'].sort());
+  await expect(page.locator('.gallery')).not.toContainText('8813');
+  await expect(page.locator('.gallery')).not.toContainText('IMG');
+  await shot(page, '22-gallery-untitled');
+});
+
+test('סרטון מקישור Google Drive', async ({ page }) => {
+  await login(page);
+  const fileId = '1AbCdEfGhIjKlMnOpQrStUvWxYz012345';
+  await page.goto('/c/video/new');
+  await page.getByRole('radio', { name: /קישור ל-Google Drive/ }).click();
+  const input = page.getByLabel('קישור שיתוף מ-Google Drive');
+  await input.fill('https://example.com/video');
+  await expect(page.getByText('זה לא נראה כמו קישור לקובץ ב-Google Drive')).toBeVisible();
+  await input.fill(`https://drive.google.com/file/d/${fileId}/view?usp=sharing`);
+  await expect(page.locator('.drive-frame--preview iframe')).toHaveAttribute('src', `https://drive.google.com/file/d/${fileId}/preview`);
+  await page.getByLabel('כותרת', { exact: true }).fill('ריקוד מהדרייב');
+  await shot(page, '23-drive-form');
+  await page.getByRole('button', { name: 'שמירה' }).click();
+  await expect(page).toHaveURL(/\/item\//);
+  await expect(page.locator('.drive-frame iframe')).toHaveAttribute('src', `https://drive.google.com/file/d/${fileId}/preview`);
+  await expect(page.getByRole('link', { name: 'פתיחה ב-Google Drive' })).toHaveAttribute('href', `https://drive.google.com/file/d/${fileId}/view`);
+  await expect(page.getByRole('link', { name: /הורדת קובץ המקור/ })).toHaveCount(0);
+  await shot(page, '24-drive-video-page');
+  // החלפת הקישור בעריכה
+  const newId = '9ZyXwVuTsRqPoNmLkJiHgFeDcBa98765';
+  await page.getByRole('button', { name: 'עריכה' }).click();
+  await page.getByLabel('קישור ל-Google Drive').fill(`https://drive.google.com/open?id=${newId}`);
+  await page.locator('dialog').getByRole('button', { name: 'שמירה' }).click();
+  await expect(page.locator('.drive-frame iframe')).toHaveAttribute('src', `https://drive.google.com/file/d/${newId}/preview`);
+  // מופיע ברשימת הסרטונים לצד הסרטון שהועלה כקובץ
+  await page.goto('/c/video');
+  await expect(page.locator('.media-card')).toHaveCount(2);
+  await expect(page.locator('.media-card__source')).toHaveCount(1);
+});
+
+test('״זיכרון מסבא״ מציג תמונה אנכית ואופקית במלואה', async ({ page }) => {
+  await login(page);
+  const seen = new Set<string>();
+  for (let i = 0; i < 40 && seen.size < 2; i++) {
+    const img = page.locator('.memory__media--fit img');
+    if (await img.count()) {
+      await expect(img).toBeVisible();
+      await img.evaluate((el: HTMLImageElement) => el.decode().catch(() => undefined));
+      const m = await img.evaluate((el: HTMLImageElement) => {
+        const r = el.getBoundingClientRect();
+        return { fit: getComputedStyle(el).objectFit, rw: r.width, rh: r.height, nw: el.naturalWidth, nh: el.naturalHeight, vw: innerWidth };
+      });
+      expect(m.fit).toBe('contain');
+      if (m.nw && m.nh) {
+        // היחס המוצג זהה ליחס המקורי — כלומר אין חיתוך
+        expect(Math.abs(m.rw / m.rh - m.nw / m.nh)).toBeLessThan(0.03);
+        expect(m.rw).toBeLessThanOrEqual(m.vw);
+        const shape = m.nh > m.nw ? 'portrait' : 'landscape';
+        if (!seen.has(shape)) {
+          seen.add(shape);
+          await page.locator('.memory').screenshot({ path: path.join(SHOTS, `25-memory-${shape}.png`) });
+        }
+      }
+    }
+    await page.getByRole('button', { name: 'עוד זיכרון' }).click();
+    await page.waitForTimeout(250);
+  }
+  expect([...seen].sort()).toEqual(['landscape', 'portrait']);
 });
 
 test('בן משפחה מוזמן — אין לו אפשרות מחיקה, והשרת חוסם', async ({ page, browser }) => {

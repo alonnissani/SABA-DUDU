@@ -69,6 +69,8 @@ export interface NewItem {
   tags?: string[];
   files?: { id: string; width?: number; height?: number; duration?: number }[];
   linkIds?: string[];
+  /** סרטון: קישור שיתוף ל-Google Drive במקום קובץ */
+  externalUrl?: string;
 }
 
 export const api = {

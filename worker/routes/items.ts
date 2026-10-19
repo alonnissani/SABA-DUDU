@@ -2,6 +2,7 @@ import { Hono } from 'hono';
 import type { AppEnv } from '../env';
 import type { ItemKind, StoryType } from '../../shared/types';
 import { ALLOWED_MIME, ITEM_KINDS, STORY_TYPES } from '../../shared/constants';
+import { driveViewUrl, parseDriveFileId } from '../../shared/drive';
 import { requireAdmin, requireUser } from '../lib/auth';
 import { audit } from '../lib/audit';
 import { fail, intOrNull, newId, now, placeholders, readJson, str } from '../lib/http';
@@ -123,6 +124,15 @@ interface CreateBody {
   tags?: unknown;
   files?: { id?: unknown; width?: unknown; height?: unknown; duration?: unknown }[];
   linkIds?: unknown;
+  externalUrl?: unknown;
+}
+
+/** קישור Google Drive לסרטון — מחזיר מזהה קובץ וכתובת מנורמלת */
+function parseExternalUrl(value: unknown): { fileId: string; url: string } {
+  if (typeof value !== 'string' || value.length > 2000) fail(400, 'קישור לא תקין');
+  const fileId = parseDriveFileId(value);
+  if (!fileId) fail(400, 'זה לא נראה כמו קישור שיתוף של קובץ ב-Google Drive. העתיקו את הקישור מ״שיתוף ← העתקת קישור״.');
+  return { fileId, url: driveViewUrl(fileId) };
 }
 
 /** יצירת פריט חדש — מותר לכל משתמש מחובר. התוכן מופיע מיד לכל המשפחה. */
@@ -130,7 +140,8 @@ itemRoutes.post('/items', async (c) => {
   const user = requireUser(c);
   const b = await readJson<CreateBody>(c.req.raw);
   const kind = parseKind(b.kind, true);
-  const title = str(b.title, 200, 'כותרת', true)!;
+  // לתמונות הכותרת אינה חובה — תמונה בלי כותרת מוצגת בלי כותרת
+  const title = str(b.title, 200, 'כותרת', kind !== 'photo') ?? '';
   const description = str(b.description, 4000, 'תיאור');
   const body = kind === 'story' ? str(b.body, 50000, 'תוכן הסיפור', true) : null;
   const storyType = kind === 'story' ? parseStoryType(b.storyType) : null;
@@ -153,7 +164,11 @@ itemRoutes.post('/items', async (c) => {
     if (!row || row.created_by !== user.id || row.item_id || row.id === heroId) fail(400, 'קובץ לא נמצא או כבר שויך');
     fileRows.push(row);
   }
-  if (kind !== 'story') {
+  const external = kind === 'video' && b.externalUrl !== undefined && b.externalUrl !== null && b.externalUrl !== ''
+    ? parseExternalUrl(b.externalUrl)
+    : null;
+  if (external && fileInputs.length) fail(400, 'יש לבחור קובץ או קישור — לא את שניהם');
+  if (kind !== 'story' && !external) {
     const originals = fileRows.filter((f) => f.role === 'original');
     if (originals.length !== 1) fail(400, 'יש לצרף קובץ אחד');
     if (!ALLOWED_MIME[kind].includes(originals[0].mime)) fail(400, 'סוג הקובץ אינו מתאים לקטגוריה');
@@ -194,7 +209,12 @@ itemRoutes.post('/items', async (c) => {
     ...tagIds.map((tagId) => db.prepare('INSERT OR IGNORE INTO item_tags (item_id, tag_id) VALUES (?, ?)').bind(id, tagId)),
     ...linkIds.map((linkId, i) => db.prepare('INSERT INTO item_links (story_id, item_id, position) VALUES (?, ?, ?)').bind(id, linkId, i)),
   ];
-  if (kind === 'audio' || kind === 'video') {
+  if (external) {
+    stmts.push(
+      db.prepare("INSERT INTO external_media (item_id, provider, file_id, url, updated_at) VALUES (?, 'gdrive', ?, ?, ?)").bind(id, external.fileId, external.url, t),
+    );
+  }
+  if (kind === 'audio' || (kind === 'video' && !external)) {
     stmts.push(db.prepare("INSERT INTO transcripts (item_id, status, updated_at) VALUES (?, 'none', ?)").bind(id, t));
   }
   await db.batch(stmts);
@@ -217,7 +237,7 @@ itemRoutes.patch('/items/:id', async (c) => {
     sets.push(`${col} = ?`);
     binds.push(v);
   };
-  if ('title' in b) set('title', str(b.title, 200, 'כותרת', true));
+  if ('title' in b) set('title', str(b.title, 200, 'כותרת', row.kind !== 'photo') ?? '');
   if ('description' in b) set('description', str(b.description, 4000, 'תיאור'));
   if ('body' in b && row.kind === 'story') set('body', str(b.body, 50000, 'תוכן הסיפור', true));
   if ('storyType' in b && row.kind === 'story') set('story_type', parseStoryType(b.storyType));
@@ -227,6 +247,13 @@ itemRoutes.patch('/items/:id', async (c) => {
   set('updated_at', now());
   set('updated_by', admin.id);
   const stmts = [db.prepare(`UPDATE items SET ${sets.join(', ')} WHERE id = ?`).bind(...binds, row.id)];
+  if ('externalUrl' in b) {
+    // החלפת קישור Google Drive — רק לסרטון שנוסף מלכתחילה כקישור
+    const hasExternal = await db.prepare('SELECT 1 FROM external_media WHERE item_id = ?').bind(row.id).first();
+    if (!hasExternal) fail(400, 'לפריט זה אין קישור חיצוני');
+    const ext = parseExternalUrl(b.externalUrl);
+    stmts.push(db.prepare('UPDATE external_media SET file_id = ?, url = ?, updated_at = ? WHERE item_id = ?').bind(ext.fileId, ext.url, now(), row.id));
+  }
   if ('tags' in b) {
     const tagIds = await ensureTags(db, parseTags(b.tags));
     stmts.push(db.prepare('DELETE FROM item_tags WHERE item_id = ?').bind(row.id));

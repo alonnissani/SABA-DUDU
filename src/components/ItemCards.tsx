@@ -1,7 +1,8 @@
 import { Link } from 'react-router';
 import type { ItemSummary } from '../../shared/types';
 import { KIND_LABELS, STORY_TYPE_LABEL } from '../../shared/constants';
-import { formatDate, formatDuration, itemDateLabel, originalOf, previewUrl } from '../lib/media';
+import { accessibleTitle, displayTitle, formatDate, formatDuration, itemDateLabel, originalOf, previewUrl } from '../lib/media';
+import { SafeImg } from './Common';
 import { Icon, KIND_ICON } from './Icon';
 import { AudioPlayer } from './AudioPlayer';
 import { fileUrl } from '../api/client';
@@ -43,17 +44,21 @@ export function PhotoTile({ item, onOpen }: { item: ItemSummary; onOpen: () => v
   const src = previewUrl(item);
   const o = originalOf(item);
   const ratio = o?.width && o?.height ? `${o.width} / ${o.height}` : '4 / 3';
+  const title = displayTitle(item);
+  const date = itemDateLabel(item);
   return (
     <figure className="photo-tile">
-      <button className="photo-tile__btn" onClick={onOpen} aria-label={`פתיחת התמונה: ${item.title}`}>
+      <button className="photo-tile__btn" onClick={onOpen} aria-label={title ? `פתיחת התמונה: ${title}` : 'פתיחת התמונה'}>
         <span className="photo-tile__img" style={{ aspectRatio: ratio }}>
           {src ? <img src={src} alt="" loading="lazy" decoding="async" /> : <span className="photo-tile__noprev"><Icon name="photo" size={32} />{o?.mime.split('/')[1]?.toUpperCase()}</span>}
         </span>
       </button>
-      <figcaption className="photo-tile__cap">
-        <span className="photo-tile__title">{item.title}</span>
-        {itemDateLabel(item) && <span className="photo-tile__date">{itemDateLabel(item)}</span>}
-      </figcaption>
+      {(title || date) && (
+        <figcaption className="photo-tile__cap">
+          {title && <span className="photo-tile__title">{title}</span>}
+          {date && <span className="photo-tile__date">{date}</span>}
+        </figcaption>
+      )}
     </figure>
   );
 }
@@ -64,7 +69,12 @@ export function VideoCard({ item }: { item: ItemSummary }) {
   return (
     <Link to={`/item/${item.id}`} className="card media-card">
       <span className="media-card__thumb">
-        {src ? <img src={src} alt="" loading="lazy" decoding="async" /> : <span className="media-card__noprev"><Icon name="video" size={36} /></span>}
+        {src ? (
+          <SafeImg src={src} alt="" loading="lazy" decoding="async" fallback={<span className="media-card__noprev"><Icon name="video" size={36} /></span>} />
+        ) : (
+          <span className="media-card__noprev"><Icon name="video" size={36} /></span>
+        )}
+        {item.externalVideo && <span className="media-card__source">Google Drive</span>}
         <span className="media-card__play" aria-hidden="true">
           <Icon name="play" size={26} />
         </span>
@@ -145,13 +155,15 @@ export function DocumentCard({ item }: { item: ItemSummary }) {
 /** שורת תוצאה כללית — לחיפוש, לסל המחזור ולצירוף פריטים. */
 export function ItemRowCard({ item, to, children }: { item: ItemSummary; to?: string; children?: React.ReactNode }) {
   const src = previewUrl(item);
+  const title = displayTitle(item);
+  const icon = <Icon name={KIND_ICON[item.kind]} size={26} />;
   const inner = (
     <>
       <span className="row-card__thumb" aria-hidden="true">
-        {src ? <img src={src} alt="" loading="lazy" decoding="async" /> : <Icon name={KIND_ICON[item.kind]} size={26} />}
+        {src ? <SafeImg src={src} alt="" loading="lazy" decoding="async" fallback={icon} /> : icon}
       </span>
       <span className="row-card__body">
-        <span className="card__title">{item.title}</span>
+        {title ? <span className="card__title">{title}</span> : <span className="visually-hidden">{accessibleTitle(item)}</span>}
         {(item.excerpt || item.description) && <span className="card__desc card__desc--clamp">{item.excerpt ?? item.description}</span>}
         <ItemMeta item={item} showKind />
       </span>

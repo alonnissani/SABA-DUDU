@@ -10,11 +10,14 @@ import { ItemRowCard } from '../components/ItemCards';
 import { MetaFields, emptyMeta, metaPayload, type MetaValues } from '../components/MetaFields';
 import { fileTitle } from '../lib/media';
 import { kindForFile, precheck, uploadAsItem, type MediaKind, type Stage } from '../lib/uploader';
+import { drivePreviewUrl, parseDriveFileId } from '../../shared/drive';
 
 export function AddItemScreen() {
   const { kind } = useParams();
   if (!kind || !(ITEM_KINDS as string[]).includes(kind)) return <Navigate to="/home" replace />;
-  return kind === 'story' ? <StoryForm /> : <MediaForm key={kind} kind={kind as MediaKind} />;
+  if (kind === 'story') return <StoryForm />;
+  if (kind === 'video') return <VideoForm />;
+  return <MediaForm key={kind} kind={kind as MediaKind} />;
 }
 
 /** אזהרה לפני יציאה מהדף באמצע העלאה */
@@ -47,7 +50,7 @@ const STAGE_LABEL: Record<Pending['stage'], string> = {
   done: 'נשמר ✓',
 };
 
-function MediaForm({ kind }: { kind: MediaKind }) {
+function MediaForm({ kind, embedded }: { kind: MediaKind; embedded?: boolean }) {
   const navigate = useNavigate();
   const toast = useToast();
   const label = KIND_LABELS[kind];
@@ -67,7 +70,8 @@ function MediaForm({ kind }: { kind: MediaKind }) {
     const added: Pending[] = [...list].map((file) => ({
       key: `${file.name}-${file.size}-${file.lastModified}-${Math.random()}`,
       file,
-      title: fileTitle(file.name),
+      // לתמונות לא ממלאים מראש את שם הקובץ — הכותרת אופציונלית
+      title: kind === 'photo' ? '' : fileTitle(file.name),
       previewUrl: kind === 'photo' && /^image\/(jpeg|png|webp|gif|avif)$/.test(file.type) ? URL.createObjectURL(file) : null,
       error: precheck(kind, file),
       stage: 'waiting',
@@ -91,7 +95,7 @@ function MediaForm({ kind }: { kind: MediaKind }) {
       setFormError('יש לבחור לפחות קובץ אחד תקין');
       return;
     }
-    if (todo.some((f) => !f.title.trim())) {
+    if (kind !== 'photo' && todo.some((f) => !f.title.trim())) {
       setFormError('לכל קובץ צריכה להיות כותרת');
       return;
     }
@@ -124,8 +128,8 @@ function MediaForm({ kind }: { kind: MediaKind }) {
   const multiple = kind !== 'video';
 
   return (
-    <div className="add">
-      <PageHeader title={kind === 'photo' ? 'העלאת תמונות' : `העלאת ${label.singular}`} icon={KIND_ICON[kind]} />
+    <div className={embedded ? undefined : 'add'}>
+      {!embedded && <PageHeader title={kind === 'photo' ? 'העלאת תמונות' : `העלאת ${label.singular}`} icon={KIND_ICON[kind]} />}
       <form className="form form--card" onSubmit={submit}>
         <div className="step">
           <span className="step__num">1</span>
@@ -160,8 +164,8 @@ function MediaForm({ kind }: { kind: MediaKind }) {
                     value={f.title}
                     disabled={busy || f.stage === 'done'}
                     onChange={(e) => update(f.key, { title: e.target.value })}
-                    placeholder="כותרת"
-                    required
+                    placeholder={kind === 'photo' ? 'כותרת (לא חובה)' : 'כותרת'}
+                    required={kind !== 'photo'}
                   />
                   <span className="pending__info">
                     {f.file.name} · {formatBytes(f.file.size)}
@@ -212,6 +216,106 @@ function MediaForm({ kind }: { kind: MediaKind }) {
         </div>
       </form>
     </div>
+  );
+}
+
+// ---------------- סרטון: העלאת קובץ או קישור ל-Google Drive ----------------
+
+function VideoForm() {
+  const [source, setSource] = useState<'upload' | 'drive'>('upload');
+  return (
+    <div className="add">
+      <PageHeader title="הוספת סרטון" icon="video" />
+      <div className="source-switch" role="radiogroup" aria-label="איך להוסיף את הסרטון?">
+        <button type="button" role="radio" aria-checked={source === 'upload'} className={`source-switch__opt ${source === 'upload' ? 'is-active' : ''}`} onClick={() => setSource('upload')}>
+          <Icon name="upload" />
+          <span>
+            <strong>העלאת קובץ מהמכשיר</strong>
+            <small>הסרטון נשמר באתר באיכות המקורית</small>
+          </span>
+        </button>
+        <button type="button" role="radio" aria-checked={source === 'drive'} className={`source-switch__opt ${source === 'drive' ? 'is-active' : ''}`} onClick={() => setSource('drive')}>
+          <Icon name="link" />
+          <span>
+            <strong>קישור ל-Google Drive</strong>
+            <small>לא תופס נפח אחסון באתר</small>
+          </span>
+        </button>
+      </div>
+      {source === 'upload' ? <MediaForm kind="video" embedded /> : <DriveForm />}
+    </div>
+  );
+}
+
+function DriveForm() {
+  const navigate = useNavigate();
+  const toast = useToast();
+  const [url, setUrl] = useState('');
+  const [title, setTitle] = useState('');
+  const [meta, setMeta] = useState<MetaValues>(emptyMeta());
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const tags = useLoad(() => api.tags(), []);
+  const fileId = parseDriveFileId(url);
+  const invalid = url.trim() !== '' && !fileId;
+
+  const submit = async (e: FormEvent) => {
+    e.preventDefault();
+    setError(null);
+    if (!fileId) {
+      setError('הדביקו קישור שיתוף של סרטון מ-Google Drive');
+      return;
+    }
+    setBusy(true);
+    try {
+      const item = await api.create({ kind: 'video', title: title.trim(), externalUrl: url.trim(), ...metaPayload(meta) });
+      toast('הסרטון נוסף לארכיון');
+      navigate(`/item/${item.id}`);
+    } catch (err) {
+      setError((err as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <form className="form form--card" onSubmit={submit}>
+      <div className="step">
+        <span className="step__num">1</span>
+        <div className="step__body">
+          <h2 className="step__title">קישור לסרטון</h2>
+          <Field label="קישור שיתוף מ-Google Drive" hint="בדרייב: לחיצה על ⋮ ליד הסרטון ← שיתוף ← ״כל מי שיש לו את הקישור״ ← העתקת קישור">
+            <input type="url" dir="ltr" inputMode="url" required placeholder="https://drive.google.com/file/d/…/view" value={url} onChange={(e) => setUrl(e.target.value)} aria-invalid={invalid} />
+          </Field>
+          {invalid && <p className="pending__error">זה לא נראה כמו קישור לקובץ ב-Google Drive</p>}
+          {fileId && (
+            <div className="drive-frame drive-frame--preview">
+              <iframe src={drivePreviewUrl(fileId)} title="תצוגה מקדימה של הסרטון" allow="autoplay; fullscreen; encrypted-media" allowFullScreen referrerPolicy="no-referrer" />
+            </div>
+          )}
+          {fileId && <p className="field__hint">אם בתצוגה המקדימה מופיעה בקשת גישה — יש לשנות בדרייב את הרשאת השיתוף ל״כל מי שיש לו את הקישור״.</p>}
+        </div>
+      </div>
+      <div className="step">
+        <span className="step__num">2</span>
+        <div className="step__body">
+          <h2 className="step__title">פרטים</h2>
+          <Field label="כותרת">
+            <input required maxLength={200} value={title} onChange={(e) => setTitle(e.target.value)} />
+          </Field>
+          <MetaFields value={meta} onChange={setMeta} suggestions={tags.data?.map((t) => t.name)} />
+        </div>
+      </div>
+      {error && <ErrorBox message={error} />}
+      <div className="form__actions">
+        <Link to="/c/video" className="btn btn--ghost">
+          חזרה
+        </Link>
+        <button className="btn btn--primary btn--lg" disabled={busy || !fileId}>
+          {busy ? 'שומר…' : 'שמירה'}
+        </button>
+      </div>
+    </form>
   );
 }
 
@@ -319,7 +423,7 @@ function StoryForm() {
                 <li key={l.id}>
                   <ItemRowCard item={l}>
                     {!busy && (
-                      <button type="button" className="icon-btn" onClick={() => setLinked((p) => p.filter((x) => x.id !== l.id))} aria-label={`הסרת ${l.title}`}>
+                      <button type="button" className="icon-btn" onClick={() => setLinked((p) => p.filter((x) => x.id !== l.id))} aria-label={`הסרת ${l.title || 'פריט'}`}>
                         <Icon name="close" />
                       </button>
                     )}

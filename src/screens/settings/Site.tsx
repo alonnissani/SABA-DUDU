@@ -5,7 +5,7 @@ import { resolveMime } from '../../../shared/constants';
 import { useApp, useLoad, useToast } from '../../state';
 import { ErrorBox, Field, Modal, ProgressBar, Spinner } from '../../components/Common';
 import { Icon } from '../../components/Icon';
-import { previewUrl } from '../../lib/media';
+import { accessibleTitle, displayTitle, previewUrl } from '../../lib/media';
 import { precheck } from '../../lib/uploader';
 
 export function HeroSection() {
@@ -97,9 +97,9 @@ function PhotoPicker({ onPick, onClose }: { onPick: (id: string) => void; onClos
       ) : (
         <div className="pick-grid">
           {photos.data.items.map((p) => (
-            <button key={p.id} className="pick-grid__btn" onClick={() => onPick(p.id)} aria-label={`בחירת ${p.title}`}>
+            <button key={p.id} className="pick-grid__btn" onClick={() => onPick(p.id)} aria-label={`בחירת ${accessibleTitle(p)}`}>
               {previewUrl(p) ? <img src={previewUrl(p)!} alt="" loading="lazy" /> : <Icon name="photo" />}
-              <span>{p.title}</span>
+              {displayTitle(p) && <span>{displayTitle(p)}</span>}
             </button>
           ))}
         </div>

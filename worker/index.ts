@@ -4,6 +4,7 @@ import type { AppEnv, Env } from './env';
 import { adminGuard, loadSession, sameOriginGuard, userGuard } from './lib/auth';
 import { getSiteSettings } from './lib/settings';
 import { runBackup } from './lib/backup';
+import { ensureSchema } from './lib/schema';
 import { authRoutes } from './routes/auth';
 import { itemRoutes } from './routes/items';
 import { uploadRoutes } from './routes/uploads';
@@ -18,6 +19,10 @@ app.use('*', async (c, next) => {
   c.header('x-content-type-options', 'nosniff');
   c.header('referrer-policy', 'same-origin');
   if (!c.res.headers.has('cache-control')) c.header('cache-control', 'no-store');
+});
+app.use('*', async (c, next) => {
+  await ensureSchema(c.env.DB);
+  await next();
 });
 app.use('*', sameOriginGuard);
 app.use('*', loadSession);

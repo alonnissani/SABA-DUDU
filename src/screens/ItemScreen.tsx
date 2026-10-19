@@ -10,7 +10,8 @@ import { AudioPlayer } from '../components/AudioPlayer';
 import { ItemMeta, ItemRowCard, TagList } from '../components/ItemCards';
 import { Lightbox } from '../components/Lightbox';
 import { MetaFields, metaPayload, type MetaValues } from '../components/MetaFields';
-import { displayableImage, formatDate, formatDuration, originalOf, previewOf, previewUrl } from '../lib/media';
+import { accessibleTitle, displayTitle, displayableImage, formatDate, formatDuration, originalOf, previewOf, previewUrl } from '../lib/media';
+import { drivePreviewUrl, parseDriveFileId } from '../../shared/drive';
 
 export function ItemScreen() {
   const { id = '' } = useParams();
@@ -81,7 +82,7 @@ function ItemView({ item, reload, onChange }: { item: ItemDetail; reload: () => 
               <Icon name={KIND_ICON[item.kind]} size={18} />
               {KIND_LABELS[item.kind].singular}
             </span>
-            <h1 className="item__title">{item.title}</h1>
+            {displayTitle(item) ? <h1 className="item__title">{displayTitle(item)}</h1> : <h1 className="visually-hidden">{accessibleTitle(item)}</h1>}
           </header>
           <MediaView item={item} />
           <div className="item__details">
@@ -152,7 +153,7 @@ function ItemView({ item, reload, onChange }: { item: ItemDetail; reload: () => 
       {confirmDelete && (
         <Modal title="מחיקת פריט" onClose={() => setConfirmDelete(false)}>
           <p>
-            למחוק את ״{item.title}״? הפריט יועבר לסל המחזור, הקבצים יישמרו, ואפשר יהיה לשחזר אותו בכל עת מתוך ״הגדרות ← ניהול תכנים״.
+            למחוק את ״{accessibleTitle(item)}״? הפריט יועבר לסל המחזור, הקבצים יישמרו, ואפשר יהיה לשחזר אותו בכל עת מתוך ״הגדרות ← ניהול תכנים״.
           </p>
           <div className="form__actions">
             <button className="btn btn--ghost" onClick={() => setConfirmDelete(false)}>
@@ -173,6 +174,7 @@ function MediaView({ item }: { item: ItemDetail }) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const original = originalOf(item);
   const poster = previewOf(item);
+  if (item.externalVideo) return <DriveVideo fileId={item.externalVideo.fileId} url={item.externalVideo.url} title={item.title} />;
   if (!original) return null;
 
   if (item.kind === 'photo' || (item.kind === 'document' && original.mime.startsWith('image/'))) {
@@ -182,7 +184,7 @@ function MediaView({ item }: { item: ItemDetail }) {
         <figure className={item.kind === 'photo' ? 'mounted' : 'doc-view doc-view--image'}>
           {src ? (
             <button className="mounted__btn" onClick={() => setZoom(true)} aria-label="פתיחה במסך מלא עם הגדלה">
-              <img src={src} alt={item.title} style={original.width && original.height ? { aspectRatio: `${original.width} / ${original.height}` } : undefined} />
+              <img src={src} alt={accessibleTitle(item)} style={original.width && original.height ? { aspectRatio: `${original.width} / ${original.height}` } : undefined} />
               <span className="mounted__zoom" aria-hidden="true">
                 <Icon name="fullscreen" size={20} />
               </span>
@@ -239,6 +241,35 @@ function MediaView({ item }: { item: ItemDetail }) {
   );
 }
 
+/**
+ * סרטון מ-Google Drive בנגן מוטמע. הניגון תלוי בהרשאות השיתוף בדרייב, ולכן תמיד מוצג גם קישור לפתיחה ישירה.
+ */
+function DriveVideo({ fileId, url, title }: { fileId: string; url: string; title: string }) {
+  return (
+    <div className="video-wrap">
+      <div className="drive-frame">
+        <iframe
+          src={drivePreviewUrl(fileId)}
+          title={title || 'סרטון מ-Google Drive'}
+          allow="autoplay; fullscreen; encrypted-media; picture-in-picture"
+          allowFullScreen
+          loading="lazy"
+          referrerPolicy="no-referrer"
+        />
+      </div>
+      <div className="video-wrap__bar">
+        <span className="meta__muted small">
+          הסרטון מוצג מ-Google Drive. אם הוא לא מתנגן, ייתכן שהרשאות השיתוף שלו מוגבלות.
+        </span>
+        <a className="btn btn--ghost btn--sm" href={url} target="_blank" rel="noopener noreferrer">
+          <Icon name="link" size={18} />
+          פתיחה ב-Google Drive
+        </a>
+      </div>
+    </div>
+  );
+}
+
 function StoryBody({ item }: { item: ItemDetail }) {
   return (
     <div className="sheet">
@@ -263,7 +294,7 @@ function LinkedItems({ item }: { item: ItemDetail }) {
       {photos.length > 0 && (
         <div className="linked-photos">
           {photos.map((p, i) => (
-            <button key={p.id} className="linked-photos__btn" onClick={() => setOpen(i)} aria-label={`פתיחת התמונה ${p.title}`}>
+            <button key={p.id} className="linked-photos__btn" onClick={() => setOpen(i)} aria-label={`פתיחת התמונה ${displayTitle(p) ?? ''}`.trim()}>
               {previewUrl(p) ? <img src={previewUrl(p)!} alt="" loading="lazy" /> : <Icon name="photo" />}
             </button>
           ))}
@@ -387,7 +418,8 @@ function Comments({ item, onAdded }: { item: ItemDetail; onAdded: () => void }) 
 }
 
 function EditItem({ item, onClose, onSaved }: { item: ItemDetail; onClose: () => void; onSaved: (i: ItemDetail) => void }) {
-  const [title, setTitle] = useState(item.title);
+  const [title, setTitle] = useState(item.kind === 'photo' && !displayTitle(item) ? '' : item.title);
+  const [externalUrl, setExternalUrl] = useState(item.externalVideo?.url ?? '');
   const [body, setBody] = useState(item.body ?? '');
   const [storyType, setStoryType] = useState<StoryType>(item.storyType ?? 'family');
   const [meta, setMeta] = useState<MetaValues>({
@@ -405,7 +437,9 @@ function EditItem({ item, onClose, onSaved }: { item: ItemDetail; onClose: () =>
     setError(null);
     try {
       const m = metaPayload(meta);
+      if (item.externalVideo && !parseDriveFileId(externalUrl)) throw new Error('קישור Google Drive לא תקין');
       const updated = await api.edit(item.id, {
+        ...(item.externalVideo && externalUrl !== item.externalVideo.url ? { externalUrl } : {}),
         title,
         description: m.description ?? '',
         dateText: m.dateText ?? '',
@@ -424,9 +458,14 @@ function EditItem({ item, onClose, onSaved }: { item: ItemDetail; onClose: () =>
   return (
     <Modal title="עריכת פריט" onClose={onClose} wide>
       <form className="form" onSubmit={save}>
-        <Field label="כותרת">
-          <input required value={title} onChange={(e) => setTitle(e.target.value)} />
+        <Field label={item.kind === 'photo' ? 'כותרת (לא חובה)' : 'כותרת'}>
+          <input required={item.kind !== 'photo'} value={title} onChange={(e) => setTitle(e.target.value)} />
         </Field>
+        {item.externalVideo && (
+          <Field label="קישור ל-Google Drive" hint="אפשר להדביק קישור חדש כדי להחליף את הסרטון">
+            <input type="url" dir="ltr" required value={externalUrl} onChange={(e) => setExternalUrl(e.target.value)} />
+          </Field>
+        )}
         {item.kind === 'story' && (
           <>
             <Field label="סוג הסיפור">

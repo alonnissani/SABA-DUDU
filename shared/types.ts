@@ -27,6 +27,13 @@ export interface FileInfo {
   duration: number | null;
 }
 
+/** סרטון שמוצג מ-Google Drive במקום קובץ שנשמר באתר */
+export interface ExternalVideo {
+  provider: 'gdrive';
+  fileId: string;
+  url: string;
+}
+
 export interface ItemSummary {
   id: string;
   kind: ItemKind;
@@ -41,6 +48,7 @@ export interface ItemSummary {
   createdAt: number;
   createdBy: PublicUser;
   files: FileInfo[];
+  externalVideo: ExternalVideo | null;
   commentCount: number;
   deletedAt: number | null;
 }

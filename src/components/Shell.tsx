@@ -56,7 +56,11 @@ export function Shell() {
       <main id="main" className="main">
         <Outlet />
       </main>
-      <nav className="tabs tabs--bottom" aria-label="קטגוריות">
+      <nav className="tabs tabs--bottom" aria-label="ניווט ראשי">
+        <NavLink to="/home" end className="tabs__tab">
+          <Icon name="home" size={24} />
+          <span>בית</span>
+        </NavLink>
         {ITEM_KINDS.map((k) => (
           <NavLink key={k} to={`/c/${k}`} className="tabs__tab">
             <Icon name={KIND_ICON[k]} size={24} />

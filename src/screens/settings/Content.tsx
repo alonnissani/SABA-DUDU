@@ -6,7 +6,7 @@ import { useLoad, useToast } from '../../state';
 import { ErrorBox, Spinner } from '../../components/Common';
 import { Icon, KIND_ICON } from '../../components/Icon';
 import { ItemRowCard } from '../../components/ItemCards';
-import { formatDate } from '../../lib/media';
+import { accessibleTitle, formatDate } from '../../lib/media';
 
 export function ContentSection() {
   const toast = useToast();
@@ -85,7 +85,7 @@ export function ContentSection() {
                 ) : (
                   <button
                     className="btn btn--danger-ghost btn--sm"
-                    onClick={() => window.confirm(`למחוק את ״${it.title}״? אפשר יהיה לשחזר מסל המחזור.`) && act(() => api.remove(it.id), 'הפריט הועבר לסל המחזור')}
+                    onClick={() => window.confirm(`למחוק את ״${accessibleTitle(it)}״? אפשר יהיה לשחזר מסל המחזור.`) && act(() => api.remove(it.id), 'הפריט הועבר לסל המחזור')}
                   >
                     <Icon name="trash" size={18} />
                     מחיקה

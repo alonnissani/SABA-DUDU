@@ -1,9 +1,10 @@
 import type { Env } from '../env';
 import { now } from './http';
+import { ensureSchema } from './schema';
 
 /** טבלאות שנכללות ב-snapshot של בסיס הנתונים (ללא סשנים, ניסיונות התחברות ואינדקס חיפוש שניתן לבנות מחדש). */
 const SNAPSHOT_TABLES = [
-  'users', 'invites', 'items', 'files', 'tags', 'item_tags', 'comments', 'item_links', 'transcripts', 'settings', 'audit_log', 'backup_runs',
+  'users', 'invites', 'items', 'files', 'tags', 'item_tags', 'comments', 'item_links', 'transcripts', 'settings', 'audit_log', 'backup_runs', 'external_media',
 ];
 
 export interface BackupOptions {
@@ -18,6 +19,7 @@ export interface BackupOptions {
 export async function runBackup(env: Env, opts: BackupOptions): Promise<{ status: string; message: string }> {
   if (!env.BACKUP) return { status: 'skipped', message: 'לא הוגדר bucket גיבוי (BACKUP)' };
   const db = env.DB;
+  await ensureSchema(db);
   const started = now();
   const run = await db
     .prepare("INSERT INTO backup_runs (started_at, status) VALUES (?, 'running') RETURNING id")
