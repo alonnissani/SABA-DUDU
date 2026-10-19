@@ -345,9 +345,12 @@
 /* ---------- זיכרונות מרחפים סביב המסגרת ---------- */
 .orbit {
   /* גודל בסיס לאלמנט; כל אלמנט מוכפל בגורם עומק משלו */
-  --m: clamp(40px, 13vw, 58px);
-  /* טווח הריחוף — מצומצם בטלפון כדי שאלמנט לא ייחתך בשולי המסך */
-  --amp: 0.7;
+  --m: clamp(38px, 12vw, 54px);
+  /* טווח הריחוף לכל ציר — האופקי מצומצם בטלפון כדי שאלמנט לא ייחתך בשולי המסך ולא ייכנס לתמונה */
+  --ampx: 0.5;
+  --ampy: 1;
+  /* מרכז הרצועה שבין קצה המסך לשולי התמונה, ביחס לשכבה (ברוחב המסגרת min(78vw, 330px); שולי המסגרת 32px) */
+  --side: calc(16px - (100vw - min(78vw, 330px)) / 4);
   position: relative;
   display: grid;
   justify-items: center;
@@ -363,11 +366,11 @@
   position: absolute;
   width: calc(var(--m) * var(--k, 1));
   transform: translate(-50%, -50%);
-  animation: fade-in 1.6s ease both;
+  animation: fade-in 1.2s ease both;
 }
 .mem__drift {
   display: block;
-  animation: mem-drift var(--drift-dur, 24s) ease-in-out var(--drift-delay, 0s) infinite var(--drift-dir, normal);
+  animation: mem-drift var(--drift-dur, 14s) ease-in-out var(--drift-delay, 0s) infinite var(--drift-dir, normal);
   will-change: transform;
 }
 .mem__img {
@@ -376,42 +379,45 @@
   height: auto;
   opacity: var(--o, 1);
   filter: drop-shadow(0 4px 6px rgba(94, 67, 48, 0.22));
-  animation: mem-sway var(--sway-dur, 12s) ease-in-out var(--sway-delay, 0s) infinite alternate;
+  animation: mem-sway var(--sway-dur, 8s) ease-in-out var(--sway-delay, 0s) infinite alternate;
   will-change: transform;
   user-select: none;
 }
-/* מיקום סביב היקף המסגרת — חופף מעט את שולי המסגרת, אף פעם לא את התמונה */
-.mem--coffee { left: 1%; top: 11%; --k: 1; --o: 0.95; }
-.mem--pickles { left: 1%; top: 46%; --k: 1.05; }
-.mem--kiddush { left: 1.5%; top: 81%; --k: 0.9; --o: 0.9; }
-.mem--marhaba { left: 98%; top: 3%; --k: 1.1; --o: 0.92; }
-.mem--fish { left: 101.5%; top: 33%; --k: 1.1; }
-.mem--medic { left: 99%; top: 70%; --k: 1.05; --o: 0.95; }
-.mem--swimmer { left: 50%; top: 103.5%; --k: 2; }
+/* מיקום סביב היקף המסגרת — בטלפון במרכז הרצועה שבצד, כדי שיהיה מקום לתנועה בלי לגעת בתמונה */
+.mem--coffee { left: var(--side); top: 11%; --k: 1; --o: 0.95; }
+.mem--pickles { left: var(--side); top: 46%; --k: 1.05; }
+.mem--kiddush { left: var(--side); top: 81%; --k: 0.9; --o: 0.9; }
+.mem--marhaba { left: calc(100% - var(--side)); top: 4%; --k: 1.1; --o: 0.92; }
+.mem--fish { left: calc(100% - var(--side)); top: 33%; --k: 1; }
+.mem--medic { left: calc(100% - var(--side)); top: 69%; --k: 1.05; --o: 0.95; }
+.mem--swimmer { left: 50%; top: 103.5%; --k: 2; --ax: 1.6; --ay: 0.45; }
 @media (min-width: 800px) {
-  .orbit { --m: 92px; --amp: 1.25; padding-bottom: calc(var(--m) * 0.8); }
+  .orbit { --m: 92px; --ampx: 1.4; --ampy: 1.3; padding-bottom: calc(var(--m) * 0.8); }
   .orbit__layer { bottom: calc(var(--m) * 0.8 + 6px); }
   .mem--coffee { left: -26%; top: 14%; }
   .mem--pickles { left: -36%; top: 50%; }
   .mem--kiddush { left: -22%; top: 86%; }
   .mem--marhaba { left: 128%; top: 8%; }
-  .mem--fish { left: 138%; top: 40%; }
+  .mem--fish { left: 138%; top: 40%; --k: 1.1; }
   .mem--medic { left: 124%; top: 80%; }
-  .mem--swimmer { top: 106%; --k: 1.9; }
+  .mem--swimmer { top: 106%; --k: 1.9; --ax: 1; --ay: 0.3; }
 }
 @media (max-height: 640px) and (max-width: 799px) {
-  .orbit { --m: clamp(36px, 11vw, 50px); }
+  .orbit { --m: clamp(34px, 10.5vw, 48px); }
 }
+/* מסלול סגור ולא סימטרי עם שינויי כיוון — כל אלמנט עם טווח, משך וכיוון משלו */
 @keyframes mem-drift {
   0%,
   100% { transform: translate(0, 0); }
-  22% { transform: translate(calc(var(--dx) * var(--amp)), calc(var(--dy) * var(--amp) * -0.55)); }
-  48% { transform: translate(calc(var(--dx) * var(--amp) * 0.35), calc(var(--dy) * var(--amp) * -1)); }
-  73% { transform: translate(calc(var(--dx) * var(--amp) * -0.8), calc(var(--dy) * var(--amp) * -0.35)); }
+  17% { transform: translate(calc(var(--dx) * var(--ampx) * var(--ax, 1) * 0.9), calc(var(--dy) * var(--ampy) * var(--ay, 1) * -0.4)); }
+  34% { transform: translate(calc(var(--dx) * var(--ampx) * var(--ax, 1) * 0.4), calc(var(--dy) * var(--ampy) * var(--ay, 1) * -1)); }
+  51% { transform: translate(calc(var(--dx) * var(--ampx) * var(--ax, 1) * -0.5), calc(var(--dy) * var(--ampy) * var(--ay, 1) * -0.6)); }
+  68% { transform: translate(calc(var(--dx) * var(--ampx) * var(--ax, 1) * -1), calc(var(--dy) * var(--ampy) * var(--ay, 1) * 0.2)); }
+  85% { transform: translate(calc(var(--dx) * var(--ampx) * var(--ax, 1) * -0.3), calc(var(--dy) * var(--ampy) * var(--ay, 1) * 0.7)); }
 }
 @keyframes mem-sway {
-  from { transform: rotate(calc(var(--rot) * -1)) scale(0.98); }
-  to { transform: rotate(var(--rot)) scale(1.03); }
+  from { transform: rotate(calc(var(--rot) * -1)) scale(0.97); }
+  to { transform: rotate(var(--rot)) scale(1.04); }
 }
 @media (prefers-reduced-motion: reduce) {
   .mem__drift,
@@ -600,9 +606,9 @@
 .memory {
   position: relative;
   display: grid;
-  gap: 14px;
-  margin-top: 20px;
-  padding: 18px 16px 16px;
+  gap: 10px;
+  margin-top: 18px;
+  padding: 14px 14px 12px;
   border-radius: var(--r-lg);
   background:
     var(--paper-noise),
@@ -631,7 +637,7 @@
 }
 .memory__card {
   display: grid;
-  gap: 14px;
+  gap: 10px;
   color: inherit;
   text-decoration: none;
   border-radius: var(--r-md);
@@ -645,7 +651,7 @@
   aspect-ratio: 16 / 10;
   border-radius: 6px;
   background: var(--paper-deep);
-  border: 6px solid #fffdf8;
+  border: 4px solid #fffdf8;
   box-shadow: var(--shadow-md);
   transform: rotate(-0.8deg);
   transition: transform 0.35s var(--ease);
@@ -671,8 +677,8 @@
   width: auto;
   height: auto;
   max-width: 100%;
-  /* כ-40% נמוך יותר מבעבר (היה min(62vh, 480px)) — הכרטיס קומפקטי יותר */
-  max-height: min(37vh, 290px);
+  /* כרטיס קומפקטי: התמונה כולה, ביחס המקורי, בגובה מוגבל */
+  max-height: min(24vh, 190px);
   object-fit: contain;
 }
 .memory__card--button {
@@ -687,22 +693,18 @@
 }
 @media (max-width: 759px) {
   .memory {
-    gap: 10px;
+    gap: 8px;
     margin-top: 14px;
-    padding: 14px 14px 12px;
+    padding: 12px 12px 10px;
   }
   .memory__card {
-    gap: 10px;
-  }
-  .memory__media {
-    border-width: 4px;
+    gap: 8px;
   }
   .memory__title {
-    font-size: 1.25rem;
+    font-size: 1.15rem;
   }
   .memory__excerpt {
-    -webkit-line-clamp: 3;
-    font-size: 1rem;
+    font-size: 0.98rem;
   }
 }
 .memory__media--icon {
@@ -749,7 +751,7 @@
 }
 .memory__text {
   display: grid;
-  gap: 6px;
+  gap: 3px;
 }
 .memory__kind {
   display: inline-flex;
@@ -768,22 +770,22 @@
 }
 .memory__excerpt {
   font-family: var(--font-display);
-  font-size: 1.08rem;
+  font-size: 1.04rem;
   color: var(--ink-soft);
   display: -webkit-box;
-  -webkit-line-clamp: 4;
+  -webkit-line-clamp: 2;
   -webkit-box-orient: vertical;
   overflow: hidden;
 }
 .memory__meta {
-  font-size: 0.88rem;
+  font-size: 0.8rem;
   color: var(--ink-faint);
 }
 .memory__more {
   justify-self: start;
 }
 .memory__skeleton {
-  height: 220px;
+  height: 150px;
   border-radius: var(--r-md);
   background: linear-gradient(90deg, var(--paper-deep) 0%, #f8efde 50%, var(--paper-deep) 100%) 0 0 / 200% 100%;
   animation: shimmer 1.4s linear infinite;
@@ -811,18 +813,21 @@
 }
 @media (min-width: 760px) {
   .memory {
-    padding: 24px;
+    padding: 18px 20px 16px;
   }
   .memory__card {
     grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr);
     align-items: center;
-    gap: 28px;
+    gap: 18px;
+  }
+  .memory__media--fit img {
+    max-height: 220px;
   }
   .memory__card:has(.memory__media--story) {
     grid-template-columns: 1fr;
   }
   .memory__title {
-    font-size: 1.8rem;
+    font-size: 1.4rem;
   }
 }
 
@@ -2014,7 +2019,7 @@
   justify-items: center;
   gap: 14px;
 }
-/* כרטיס ״זיכרון מסבא״ קומפקטי גם להקלטות ולמסמכים (כ-40% נמוך יותר) */
+/* כרטיס ״זיכרון מסבא״ קומפקטי גם להקלטות ולמסמכים */
 .memory__media--icon {
-  aspect-ratio: 16 / 6;
+  aspect-ratio: 16 / 5;
 }

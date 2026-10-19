@@ -11,17 +11,17 @@ const sign = () => (Math.random() < 0.5 ? -1 : 1);
  * נקבע מחדש בכל כניסה למסך הפתיחה, ולכן התנועה מתחילה מחדש ושונה מעט בכל פעם.
  */
 function motion(): CSSProperties {
-  const drift = rand(17, 31);
-  const sway = rand(9, 15);
+  const drift = rand(11, 18);
+  const sway = rand(6, 10);
   return {
     '--drift-dur': `${drift.toFixed(1)}s`,
     '--drift-delay': `${(-rand(0, drift)).toFixed(1)}s`,
     '--drift-dir': Math.random() < 0.5 ? 'normal' : 'reverse',
-    '--dx': `${(sign() * rand(6, 13)).toFixed(1)}px`,
-    '--dy': `${(sign() * rand(6, 14)).toFixed(1)}px`,
+    '--dx': `${(sign() * rand(14, 26)).toFixed(1)}px`,
+    '--dy': `${(sign() * rand(14, 26)).toFixed(1)}px`,
     '--sway-dur': `${sway.toFixed(1)}s`,
     '--sway-delay': `${(-rand(0, sway)).toFixed(1)}s`,
-    '--rot': `${(sign() * rand(3, 6)).toFixed(1)}deg`,
+    '--rot': `${(sign() * rand(5, 9)).toFixed(1)}deg`,
   } as CSSProperties;
 }
 

@@ -129,7 +129,7 @@ export function RandomMemory() {
           );
         })()
       )}
-      <button className="btn btn--ghost memory__more" onClick={next} disabled={busy || (total ?? 0) < 2}>
+      <button className="btn btn--ghost btn--sm memory__more" onClick={next} disabled={busy || (total ?? 0) < 2}>
         <Icon name="shuffle" />
         עוד זיכרון
       </button>
