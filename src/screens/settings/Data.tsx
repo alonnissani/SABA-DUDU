@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { formatBytes } from '../../../shared/constants';
 import { api, fileUrl, uploadFile } from '../../api/client';
 import { imageMeta } from '../../lib/media';
+import { ensureWaveform } from '../../lib/waveform';
 import { useLoad, useToast } from '../../state';
 import { ErrorBox, ProgressBar, Spinner } from '../../components/Common';
 import { Icon } from '../../components/Icon';
@@ -204,6 +205,63 @@ export function ThumbsSection() {
           </>
         )}
       </div>
+      <WaveformsPanel />
+    </div>
+  );
+}
+
+/** גלי קול להקלטות קיימות — מחושבים בדפדפן מהקובץ ונשמרים (ההקלטות עצמן לא משתנות) */
+function WaveformsPanel() {
+  const toast = useToast();
+  const missing = useLoad(() => api.admin.missingWaveforms(), []);
+  const [progress, setProgress] = useState<{ done: number; total: number; ok: number; failed: number } | null>(null);
+  const running = progress !== null && progress.done < progress.total;
+
+  const run = async () => {
+    const list = missing.data ?? [];
+    const state = { done: 0, total: list.length, ok: 0, failed: 0 };
+    setProgress({ ...state });
+    // אחת אחרי השנייה — פענוח הקלטה תופס זיכרון
+    for (const m of list) {
+      const peaks = await ensureWaveform(m.itemId, fileUrl(m.fileId), m.size);
+      if (peaks) state.ok++;
+      else state.failed++;
+      state.done++;
+      setProgress({ ...state });
+    }
+    toast(state.failed ? `נוצרו ${state.ok} גלי קול. ${state.failed} לא נוצרו (פורמט שהדפדפן לא מפענח, או קובץ גדול מאוד).` : `נוצרו ${state.ok} גלי קול`);
+    missing.reload();
+  };
+
+  return (
+    <div className="panel">
+      <h2 className="panel__title">גלי קול להקלטות</h2>
+      <p className="muted">
+        בנגן ההקלטות מוצג גל הקול של כל הקלטה. להקלטות חדשות הוא נוצר בהעלאה, ולהקלטות ישנות — בהשמעה הראשונה. כאן אפשר ליצור אותו לכולן מראש. ההקלטות עצמן לא משתנות.
+      </p>
+      {missing.loading ? (
+        <Spinner />
+      ) : missing.error ? (
+        <ErrorBox message={missing.error} onRetry={missing.reload} />
+      ) : (
+        <>
+          <p className="small">{missing.data!.length ? `${missing.data!.length} הקלטות עדיין בלי גל קול.` : 'לכל ההקלטות כבר יש גל קול ✓'}</p>
+          {progress && (
+            <>
+              <ProgressBar value={progress.total ? progress.done / progress.total : 1} label="יצירת גלי קול" />
+              <p className="small">
+                {progress.done} / {progress.total} · נוצרו {progress.ok}
+                {progress.failed ? ` · לא נוצרו ${progress.failed}` : ''}
+              </p>
+            </>
+          )}
+          {missing.data!.length > 0 && (
+            <button className="btn btn--primary" onClick={run} disabled={running}>
+              {running ? 'יוצר…' : 'יצירת גלי קול עכשיו'}
+            </button>
+          )}
+        </>
+      )}
     </div>
   );
 }

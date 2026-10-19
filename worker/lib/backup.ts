@@ -4,7 +4,7 @@ import { ensureSchema } from './schema';
 
 /** טבלאות שנכללות ב-snapshot של בסיס הנתונים (ללא סשנים, ניסיונות התחברות ואינדקס חיפוש שניתן לבנות מחדש). */
 const SNAPSHOT_TABLES = [
-  'users', 'invites', 'items', 'files', 'tags', 'item_tags', 'comments', 'item_links', 'transcripts', 'settings', 'audit_log', 'backup_runs', 'external_media', 'drive_photos',
+  'users', 'invites', 'items', 'files', 'tags', 'item_tags', 'comments', 'item_links', 'transcripts', 'settings', 'audit_log', 'backup_runs', 'external_media', 'drive_photos', 'story_images', 'audio_peaks',
 ];
 
 export interface BackupOptions {

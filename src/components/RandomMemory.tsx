@@ -1,35 +1,52 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Link } from 'react-router';
 import type { ItemSummary } from '../../shared/types';
-import { KIND_LABELS, STORY_TYPE_LABEL } from '../../shared/constants';
-import { api } from '../api/client';
-import { displayTitle, formatDuration, itemDateLabel, originalOf, previewUrl } from '../lib/media';
-import { Icon, KIND_ICON } from './Icon';
+import { STORY_TYPE_LABEL } from '../../shared/constants';
+import { api, fileUrl } from '../api/client';
+import { displayTitle, displayableImage, originalOf, previewUrl } from '../lib/media';
+import { Icon } from './Icon';
 import { ErrorBox, SafeImg } from './Common';
 import { Lightbox } from './Lightbox';
 
-const HISTORY_KEY = 'saba:random-history';
+const PHOTO_HISTORY = 'saba:random-history';
+const STORY_HISTORY = 'saba:random-story-history';
 const HISTORY_MAX = 25;
 
-function readHistory(): string[] {
+function readHistory(key: string): string[] {
   try {
-    return JSON.parse(sessionStorage.getItem(HISTORY_KEY) ?? '[]') as string[];
+    return JSON.parse(sessionStorage.getItem(key) ?? '[]') as string[];
   } catch {
     return [];
   }
 }
-function writeHistory(ids: string[]) {
+function writeHistory(key: string, ids: string[]) {
   try {
-    sessionStorage.setItem(HISTORY_KEY, JSON.stringify(ids.slice(-HISTORY_MAX)));
+    sessionStorage.setItem(key, JSON.stringify(ids.slice(-HISTORY_MAX)));
   } catch {
     /* אחסון לא זמין */
   }
 }
 
-/** ״זיכרון מסבא״ — פריט אקראי מהארכיון, בלי לחזור על מה שהוצג לאחרונה. */
+/** פריט אקראי שלא הוצג לאחרונה (כל סוג עם היסטוריה משלו) */
+async function pickRandom(key: string, kind?: 'story'): Promise<{ item: ItemSummary | null; total: number }> {
+  const history = readHistory(key);
+  const res = await api.random(history, kind);
+  if (res.item) {
+    const h = history.filter((id) => id !== res.item!.id);
+    h.push(res.item.id);
+    writeHistory(key, h.length >= res.total ? h.slice(-1) : h);
+  }
+  return res;
+}
+
+/**
+ * ״זיכרון מסבא״ — תמונה אקראית גדולה מהגלריה, ומתחתיה סיפור אקראי (כותרת וקטע קצר).
+ * ״עוד זיכרון״ מחליף את שניהם, בלי לחזור על מה שהוצג לאחרונה. התמונה והסיפור לא קשורים זה לזה.
+ */
 export function RandomMemory() {
-  const [item, setItem] = useState<ItemSummary | null>(null);
-  const [total, setTotal] = useState<number | null>(null);
+  const [photo, setPhoto] = useState<ItemSummary | null>(null);
+  const [story, setStory] = useState<ItemSummary | null>(null);
+  const [totals, setTotals] = useState<{ photos: number; stories: number } | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [anim, setAnim] = useState(0);
@@ -39,16 +56,10 @@ export function RandomMemory() {
     setBusy(true);
     setError(null);
     try {
-      const history = readHistory();
-      // לא שולחים יותר ממספר הפריטים פחות אחד, כדי שתמיד יהיה מה להציג
-      const res = await api.random(history);
-      setItem(res.item);
-      setTotal(res.total);
-      if (res.item) {
-        const h = history.filter((id) => id !== res.item!.id);
-        h.push(res.item.id);
-        writeHistory(h.length >= res.total ? h.slice(-1) : h);
-      }
+      const [p, st] = await Promise.all([pickRandom(PHOTO_HISTORY), pickRandom(STORY_HISTORY, 'story')]);
+      setPhoto(p.item);
+      setStory(st.item);
+      setTotals({ photos: p.total, stories: st.total });
       setAnim((a) => a + 1);
     } catch (e) {
       setError((e as Error).message);
@@ -63,7 +74,7 @@ export function RandomMemory() {
 
   if (error) return <ErrorBox message={error} onRetry={next} />;
 
-  if (total === 0) {
+  if (totals && totals.photos === 0 && totals.stories === 0) {
     return (
       <section className="memory memory--empty" aria-labelledby="memory-title">
         <div className="memory__label">
@@ -85,113 +96,80 @@ export function RandomMemory() {
     );
   }
 
+  const canShuffle = !busy && totals !== null && (totals.photos > 1 || totals.stories > 1);
   return (
     <section className="memory" aria-labelledby="memory-title" aria-busy={busy}>
       <div className="memory__label">
         <Icon name="sparkle" size={18} />
         <h2 id="memory-title">זיכרון מסבא</h2>
       </div>
-      {!item ? (
+      {!totals ? (
         <div className="memory__skeleton" aria-hidden="true" />
       ) : (
-        (() => {
-          // תמונה — לחיצה פותחת אותה בגודל מלא; שאר הסוגים — לדף הפריט
-          const content = (
-            <>
-          <MemoryPreview item={item} />
-          <span className="memory__text">
-            <span className="memory__kind">
-              <Icon name={KIND_ICON[item.kind]} size={16} />
-              {item.kind === 'story' && item.storyType ? STORY_TYPE_LABEL[item.storyType] : KIND_LABELS[item.kind].singular}
-            </span>
-            {displayTitle(item) && <span className="memory__title">{displayTitle(item)}</span>}
-            {item.kind === 'story' && item.excerpt && <span className="memory__excerpt">״{item.excerpt}״</span>}
-            {item.kind !== 'story' && item.description && <span className="memory__excerpt">{item.description}</span>}
-            <span className="memory__meta">
-              {itemDateLabel(item) && `${itemDateLabel(item)} · `}
-              {item.kind === 'story' ? 'נכתב' : 'הועלה'} ע״י {item.createdBy.name}
-            </span>
-          </span>
-            </>
-          );
-          return item.kind === 'photo' ? (
-            <button key={anim} type="button" className="memory__card memory__card--button" onClick={() => setZoom(true)}>
-              {content}
+        <>
+          {photo && (
+            <button key={`p${anim}`} type="button" className="memory__card memory__card--button" onClick={() => setZoom(true)}>
+              <MemoryPhoto item={photo} />
               <span className="visually-hidden">פתיחת התמונה בגודל מלא</span>
             </button>
-          ) : (
-            <Link key={anim} to={`/item/${item.id}`} className="memory__card">
-              {content}
-            </Link>
-          );
-        })()
+          )}
+          {photo && displayTitle(photo) && <p className="memory__caption">{displayTitle(photo)}</p>}
+          {story && <MemoryStory key={`s${anim}`} item={story} />}
+        </>
       )}
-      <button className="btn btn--ghost btn--sm memory__more" onClick={next} disabled={busy || (total ?? 0) < 2}>
+      <button className="btn btn--ghost btn--sm memory__more" onClick={next} disabled={!canShuffle}>
         <Icon name="shuffle" />
         עוד זיכרון
       </button>
-      {zoom && item && <Lightbox items={[item]} index={0} onIndex={() => undefined} onClose={() => setZoom(false)} />}
+      {zoom && photo && <Lightbox items={[photo]} index={0} onIndex={() => undefined} onClose={() => setZoom(false)} />}
     </section>
   );
 }
 
-function MemoryPreview({ item }: { item: ItemSummary }) {
-  const src = previewUrl(item);
+/** התמונה במלואה (contain), ביחס המקורי — גדולה, ובאיכות שמתאימה למסך (ממוזערת או התצוגה הגדולה) */
+function MemoryPhoto({ item }: { item: ItemSummary }) {
+  const thumb = previewUrl(item);
   const o = originalOf(item);
-  const iconBox = (
-    <span className={`memory__media memory__media--icon memory__media--${item.kind}`} aria-hidden="true">
-      <Icon name={KIND_ICON[item.kind]} size={44} />
+  const full = o && displayableImage(o) ? fileUrl(o.id) : null;
+  const icon = (
+    <span className="memory__media memory__media--icon" aria-hidden="true">
+      <Icon name="photo" size={44} />
     </span>
   );
-  if (item.externalVideo && src) return <ExternalThumb src={src} fallback={iconBox} />;
-  if (src) {
-    // התמונה מוצגת במלואה (contain), ביחס הגובה-רוחב המקורי שלה
-    return (
-      <span className={`memory__media memory__media--${item.kind} memory__media--fit`}>
-        <SafeImg src={src} alt="" decoding="async" fallback={iconBox} />
-        {item.kind === 'video' && (
-          <span className="memory__play" aria-hidden="true">
-            <Icon name="play" size={28} />
-          </span>
-        )}
-      </span>
-    );
-  }
+  const src = thumb ?? full;
+  if (!src) return icon;
   return (
-    <span className={`memory__media memory__media--icon memory__media--${item.kind}`} aria-hidden="true">
-      <Icon name={KIND_ICON[item.kind]} size={44} />
-      {item.kind === 'audio' && o?.duration ? <span className="memory__dur">{formatDuration(o.duration)}</span> : null}
-      {item.kind === 'audio' && (
-        <span className="memory__wave">
-          {Array.from({ length: 18 }, (_, i) => (
-            <i key={i} style={{ height: `${30 + Math.abs(Math.sin(i * 1.7)) * 70}%` }} />
-          ))}
-        </span>
-      )}
+    <span className="memory__media memory__media--photo memory__media--fit">
+      <SafeImg
+        src={src}
+        srcSet={thumb && full ? `${thumb} 800w, ${full} 2400w` : undefined}
+        sizes="(min-width: 760px) 720px, 100vw"
+        width={o?.width ?? undefined}
+        height={o?.height ?? undefined}
+        alt=""
+        decoding="async"
+        fallback={icon}
+      />
     </span>
   );
 }
 
-/** תמונה ממוזערת של סרטון מ-Google Drive: האייקון מוצג עד שהתמונה באמת נטענה (או אם אינה זמינה) */
-function ExternalThumb({ src, fallback }: { src: string; fallback: React.ReactNode }) {
-  const [ok, setOk] = useState(false);
-  useEffect(() => {
-    setOk(false);
-    const img = new Image();
-    img.referrerPolicy = 'no-referrer';
-    img.onload = () => setOk(true);
-    img.src = src;
-    return () => {
-      img.onload = null;
-    };
-  }, [src]);
-  if (!ok) return <>{fallback}</>;
+/** סיפור אקראי — כותרת, קטע קצר וקישור לסיפור המלא (בלי תמונת הסיפור) */
+function MemoryStory({ item }: { item: ItemSummary }) {
   return (
-    <span className="memory__media memory__media--video memory__media--fit">
-      <img src={src} alt="" referrerPolicy="no-referrer" />
-      <span className="memory__play" aria-hidden="true">
-        <Icon name="play" size={28} />
+    <article className="memory__story" aria-labelledby={`memory-story-${item.id}`}>
+      <span className="memory__kind">
+        <Icon name="story" size={16} />
+        {item.storyType ? STORY_TYPE_LABEL[item.storyType] : 'סיפור'}
       </span>
-    </span>
+      <h3 id={`memory-story-${item.id}`} className="memory__story-title">
+        {item.title}
+      </h3>
+      {item.excerpt && <p className="memory__story-excerpt">{item.excerpt}</p>}
+      <Link to={`/item/${item.id}`} className="memory__story-link">
+        לקריאת הסיפור המלא
+        <Icon name="chevronLeft" size={16} />
+      </Link>
+    </article>
   );
 }

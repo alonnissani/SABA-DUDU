@@ -7,12 +7,14 @@ import { useApp, useLoad, useToast } from '../state';
 import { EmptyState, ErrorBox, Modal, PageHeader, Spinner } from '../components/Common';
 import { accessibleTitle } from '../lib/media';
 import { Icon, KIND_ICON } from '../components/Icon';
-import { AudioCard, DocumentCard, PhotoTile, VideoCard } from '../components/ItemCards';
+import { AudioCard, DocumentCard, VideoCard } from '../components/ItemCards';
+import { PhotoCollage } from '../components/PhotoCollage';
 import { StoryBoard } from '../components/StoryBoard';
 import { Lightbox } from '../components/Lightbox';
 import { VideoTheater } from '../components/VideoPlayer';
 
 const PAGE = 30;
+const CONTINUOUS_KEY = 'saba:audio-continuous';
 const RANDOM_KINDS: ItemKind[] = ['photo', 'video', 'story'];
 
 const EMPTY_TEXT: Record<ItemKind, { title: string; text: string; cta: string }> = {
@@ -50,6 +52,23 @@ function CategoryList({ kind }: { kind: ItemKind }) {
   const toast = useToast();
   const [confirmDelete, setConfirmDelete] = useState<ItemSummary | null>(null);
   const [theater, setTheater] = useState<ItemSummary | null>(null);
+  // הקלטות: השמעה ברצף — בסוף הקלטה מתחילה הבאה ברשימה
+  const [continuous, setContinuousState] = useState(() => {
+    try {
+      return localStorage.getItem(CONTINUOUS_KEY) !== '0';
+    } catch {
+      return true;
+    }
+  });
+  const setContinuous = (v: boolean) => {
+    setContinuousState(v);
+    try {
+      localStorage.setItem(CONTINUOUS_KEY, v ? '1' : '0');
+    } catch {
+      /* לא חובה */
+    }
+  };
+  const [autoPlayId, setAutoPlayId] = useState<string | null>(null);
 
   /** לחיצה על סרטון פותחת חלונית צפייה בתוך האתר — בלי מסך מלא או סיבוב כפויים */
   const playVideo = (it: ItemSummary) => setTheater(it);
@@ -252,14 +271,34 @@ function CategoryList({ kind }: { kind: ItemKind }) {
       ) : (
         <>
           {kind === 'photo' && (
-            <div className="gallery">
-              {items.map((it, i) => (
-                <PhotoTile key={it.id} item={it} onOpen={() => setOpen(i)} priority={i < 6} />
-              ))}
-            </div>
+            <PhotoCollage items={items} onOpen={setOpen} />
           )}
           {kind === 'video' && <div className="grid grid--media">{items.map((it) => <VideoCard key={it.id} item={it} onPlay={() => playVideo(it)} />)}</div>}
-          {kind === 'audio' && <div className="list">{items.map((it) => <AudioCard key={it.id} item={it} />)}</div>}
+          {kind === 'audio' && (
+            <>
+              <div className="audio-toolbar">
+                <button type="button" className={`chip ${continuous ? 'is-active' : ''}`} aria-pressed={continuous} onClick={() => setContinuous(!continuous)}>
+                  <Icon name="audio" size={16} />
+                  השמעה ברצף
+                </button>
+              </div>
+              <div className="list">
+                {items.map((it, i) => (
+                  <AudioCard
+                    key={it.id}
+                    item={it}
+                    autoPlay={autoPlayId === it.id}
+                    onEnded={() => {
+                      const next = items[i + 1];
+                      if (continuous && next) setAutoPlayId(next.id);
+                      // לקראת סוף הרשימה — טוענים עוד הקלטות, כדי שהרצף ימשיך
+                      if (continuous && i + 3 >= items.length && fetched.current < total) more();
+                    }}
+                  />
+                ))}
+              </div>
+            </>
+          )}
           {kind === 'story' && <StoryBoard items={items} />}
           {kind === 'document' && <div className="grid grid--docs">{items.map((it) => <DocumentCard key={it.id} item={it} />)}</div>}
           {hasMore && (

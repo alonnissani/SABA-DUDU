@@ -308,6 +308,65 @@ describe('זיכרון אקראי', () => {
   });
 });
 
+describe('זיכרון מסבא — סיפור אקראי', () => {
+  it('kind=story מחזיר רק סיפורים שלא נמחקו, בלי לחזור על מה שהוצג', async () => {
+    const admin = await setupAdmin();
+    await drivePhoto(admin);
+    const ids: string[] = [];
+    for (const t of ['א', 'ב', 'ג']) {
+      ids.push(((await (await admin.post('/api/items', { kind: 'story', title: t, body: `סיפור ${t}`, storyType: 'family' })).json()) as { id: string }).id);
+    }
+    await admin.del(`/api/items/${ids[2]}`);
+    const seen = new Set<string>();
+    let last = '';
+    for (let i = 0; i < 12; i++) {
+      const r = (await (await admin.get(`/api/random?kind=story&exclude=${last}`)).json()) as { item: { id: string; kind: string; excerpt: string }; total: number };
+      expect(r.total).toBe(2);
+      expect(r.item.kind).toBe('story');
+      expect(r.item.id).not.toBe(ids[2]);
+      expect(r.item.id).not.toBe(last);
+      expect(r.item.excerpt).toBeTruthy();
+      seen.add(r.item.id);
+      last = r.item.id;
+    }
+    expect(seen.size).toBe(2);
+    // ברירת המחדל — עדיין תמונות בלבד
+    const photo = (await (await admin.get('/api/random')).json()) as { item: { kind: string } };
+    expect(photo.item.kind).toBe('photo');
+  });
+});
+
+describe('גל קול להקלטות', () => {
+  it('נשמר עם הקלטה חדשה, או פעם אחת להקלטה קיימת; נתונים לא תקינים נדחים; הקובץ לא משתנה', async () => {
+    const admin = await setupAdmin();
+    const member = await inviteMember(admin);
+    const peaks = Array.from({ length: 160 }, (_, i) => (i * 7) % 100);
+    const withWave = await createMedia(admin, 'audio', MP3, 'שיר.mp3', 'audio/mpeg', { waveform: peaks });
+    expect(((await (await admin.get(`/api/items/${withWave.id}`)).json()) as { waveform: number[] }).waveform).toEqual(peaks);
+
+    const old = await createMedia(admin, 'audio', MP3, 'ישן.mp3', 'audio/mpeg');
+    expect(((await (await member.get(`/api/items/${old.id}`)).json()) as { waveform: unknown }).waveform).toBeNull();
+    const missing = (await (await admin.get('/api/admin/waveforms/missing')).json()) as { itemId: string }[];
+    expect(missing.map((m) => m.itemId)).toEqual([old.id]);
+    expect((await member.get('/api/admin/waveforms/missing')).status).toBe(403);
+    for (const bad of [[], Array(10).fill(5), Array(160).fill(100), Array(160).fill(-1), Array(160).fill(1.5), 'x', Array(500).fill(1)]) {
+      expect((await member.put(`/api/items/${old.id}/waveform`, { waveform: bad })).status, JSON.stringify(bad).slice(0, 20)).toBe(400);
+    }
+    expect((await member.put(`/api/items/${old.id}/waveform`, { waveform: peaks })).status).toBe(200);
+    // פעם אחת בלבד — ניסיון נוסף לא משנה
+    expect((await admin.put(`/api/items/${old.id}/waveform`, { waveform: Array(160).fill(3) })).status).toBe(200);
+    expect(((await (await admin.get(`/api/items/${old.id}`)).json()) as { waveform: number[] }).waveform).toEqual(peaks);
+    const list = (await (await admin.get('/api/items?kind=audio')).json()) as { items: { id: string; waveform: number[] | null }[] };
+    expect(list.items.every((i) => i.waveform?.length === 160)).toBe(true);
+    // רק להקלטות
+    const doc = await createMedia(admin, 'document', PDF, 'מכתב.pdf', 'application/pdf');
+    expect((await admin.put(`/api/items/${doc.id}/waveform`, { waveform: peaks })).status).toBe(404);
+    // ההקלטה עצמה לא השתנתה
+    const file = await admin.get(`/api/files/${old.files[0].id}`);
+    expect(new Uint8Array(await file.arrayBuffer())).toEqual(MP3);
+  });
+});
+
 describe('סיפורים, הגדרות וגיבוי', () => {
   it('סיפור עם פריטים מצורפים ותגובות ״גם אני זוכר״', async () => {
     const admin = await setupAdmin();

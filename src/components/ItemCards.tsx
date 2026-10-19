@@ -43,18 +43,17 @@ export function TagList({ tags }: { tags: string[] }) {
   );
 }
 
-/** תמונה בגלריה — בסגנון תמונה מודבקת באלבום. */
+/** תמונה בגלריה — בסגנון תמונה מודבקת באלבום. הגודל נקבע ע״י הקולאז׳ (PhotoCollage) לפי יחס התמונה. */
 export function PhotoTile({ item, onOpen, priority }: { item: ItemSummary; onOpen: () => void; priority?: boolean }) {
   const src = previewUrl(item);
   const [loaded, setLoaded] = useState(false);
   const o = originalOf(item);
-  const ratio = o?.width && o?.height ? `${o.width} / ${o.height}` : '4 / 3';
   const title = displayTitle(item);
   const date = itemDateLabel(item);
   return (
     <figure className="photo-tile">
       <button className="photo-tile__btn" onClick={onOpen} aria-label={title ? `פתיחת התמונה: ${title}` : 'פתיחת התמונה'}>
-        <span className={`photo-tile__img ${loaded || !src ? 'is-loaded' : ''}`} style={{ aspectRatio: ratio }}>
+        <span className={`photo-tile__img ${loaded || !src ? 'is-loaded' : ''}`}>
           {src ? (
             <img
               src={src}
@@ -119,7 +118,7 @@ export function VideoCard({ item, onPlay }: { item: ItemSummary; onPlay?: () => 
   );
 }
 
-export function AudioCard({ item }: { item: ItemSummary }) {
+export function AudioCard({ item, autoPlay, onEnded }: { item: ItemSummary; autoPlay?: boolean; onEnded?: () => void }) {
   const o = originalOf(item);
   return (
     <article className="card audio-card">
@@ -135,7 +134,19 @@ export function AudioCard({ item }: { item: ItemSummary }) {
         </div>
       </div>
       {item.description && <p className="card__desc">{item.description}</p>}
-      {o && <AudioPlayer src={fileUrl(o.id)} knownDuration={o.duration} title={item.title} compact />}
+      {o && (
+        <AudioPlayer
+          src={fileUrl(o.id)}
+          knownDuration={o.duration}
+          title={item.title}
+          compact
+          waveform={item.waveform}
+          itemId={item.id}
+          fileSize={o.size}
+          autoPlay={autoPlay}
+          onEnded={onEnded}
+        />
+      )}
     </article>
   );
 }

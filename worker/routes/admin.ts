@@ -344,3 +344,14 @@ adminRoutes.post('/items/:id/thumb', async (c) => {
   ]);
   return c.json({ ok: true });
 });
+
+/** הקלטות שעדיין אין להן גל קול (לכלי המנהל) */
+adminRoutes.get('/waveforms/missing', async (c) => {
+  requireAdmin(c);
+  const res = await c.env.DB.prepare(
+    `SELECT i.id AS item_id, f.id AS file_id, f.size FROM items i JOIN files f ON f.item_id = i.id AND f.role = 'original'
+     WHERE i.kind = 'audio' AND i.deleted_at IS NULL AND NOT EXISTS (SELECT 1 FROM audio_peaks p WHERE p.item_id = i.id)
+     ORDER BY i.created_at LIMIT 500`,
+  ).all<{ item_id: string; file_id: string; size: number }>();
+  return c.json(res.results.map((r) => ({ itemId: r.item_id, fileId: r.file_id, size: r.size })));
+});

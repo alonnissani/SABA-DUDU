@@ -7,7 +7,7 @@ import { requireAdmin, requireUser } from '../lib/auth';
 import { audit } from '../lib/audit';
 import { fail, intOrNull, newId, now, placeholders, readJson, str } from '../lib/http';
 import {
-  ITEM_SELECT, ensureTags, getItemDetail, getItemRow, parseTags, toSummaries, type ItemRow,
+  ITEM_SELECT, ensureTags, getItemDetail, getItemRow, parseTags, serializePeaks, toSummaries, type ItemRow,
 } from '../lib/items';
 import { reindexItem } from '../lib/search';
 import { getSetting } from '../lib/settings';
@@ -156,6 +156,7 @@ interface CreateBody {
   linkIds?: unknown;
   images?: unknown;
   externalUrl?: unknown;
+  waveform?: unknown;
 }
 
 /** קישור Google Drive לסרטון — מחזיר מזהה קובץ וכתובת מנורמלת */
@@ -253,6 +254,9 @@ itemRoutes.post('/items', async (c) => {
   if (kind === 'audio' || (kind === 'video' && !external)) {
     stmts.push(db.prepare("INSERT INTO transcripts (item_id, status, updated_at) VALUES (?, 'none', ?)").bind(id, t));
   }
+  // גל הקול של הקלטה חדשה — מחושב בדפדפן מהקובץ המקומי (לא חובה)
+  const peaks = kind === 'audio' && b.waveform !== undefined ? serializePeaks(b.waveform) : null;
+  if (peaks) stmts.push(db.prepare('INSERT INTO audio_peaks (item_id, peaks, created_at) VALUES (?, ?, ?)').bind(id, peaks, t));
   await db.batch(stmts);
   await reindexItem(db, id);
   await audit(db, user.id, 'item.create', kind, id);
@@ -361,8 +365,10 @@ itemRoutes.get('/random', async (c) => {
   requireUser(c);
   const db = c.env.DB;
   const exclude = (c.req.query('exclude') ?? '').split(',').filter((x) => /^[0-9a-f-]{36}$/.test(x)).slice(0, 50);
-  // ״זיכרון מסבא״ — רק תמונות מגלריית Google Drive (לא מוסתרות), מהרשימה שב-D1
-  const pool = `i.deleted_at IS NULL AND i.kind = 'photo' AND EXISTS (SELECT 1 FROM drive_photos dp WHERE dp.item_id = i.id)`;
+  // ״זיכרון מסבא״ — תמונה מגלריית Google Drive (לא מוסתרת), ובנוסף סיפור אקראי (kind=story)
+  const pool = c.req.query('kind') === 'story'
+    ? `i.deleted_at IS NULL AND i.kind = 'story'`
+    : `i.deleted_at IS NULL AND i.kind = 'photo' AND EXISTS (SELECT 1 FROM drive_photos dp WHERE dp.item_id = i.id)`;
   const totalRow = await db.prepare(`SELECT COUNT(*) AS n FROM items i WHERE ${pool}`).first<{ n: number }>();
   const total = totalRow?.n ?? 0;
   if (!total) return c.json({ item: null, total: 0 });
@@ -376,6 +382,21 @@ itemRoutes.get('/random', async (c) => {
   if (!row && exclude.length) row = await pick(total > 1 ? exclude.slice(-1) : []);
   const [item] = row ? await toSummaries(db, [row]) : [null];
   return c.json({ item, total });
+});
+
+/**
+ * גל קול להקלטה קיימת שעדיין אין לה — מחושב בדפדפן בהשמעה הראשונה (או בכלי המנהל).
+ * נשמר פעם אחת בלבד; ההקלטה עצמה לא משתנה.
+ */
+itemRoutes.put('/items/:id/waveform', async (c) => {
+  requireUser(c);
+  const db = c.env.DB;
+  const row = await getItemRow(db, c.req.param('id'));
+  if (!row || row.deleted_at || row.kind !== 'audio') fail(404, 'ההקלטה לא נמצאה');
+  const peaks = serializePeaks((await readJson(c.req.raw)).waveform);
+  if (!peaks) fail(400, 'גל קול לא תקין');
+  await db.prepare('INSERT OR IGNORE INTO audio_peaks (item_id, peaks, created_at) VALUES (?, ?, ?)').bind(row.id, peaks, now()).run();
+  return c.json({ ok: true });
 });
 
 /** הוספת תמונה לסיפור קיים (מנהל) — נכנסת ראשונה, כלומר הופכת לתמונת הסיפור */

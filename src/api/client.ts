@@ -102,6 +102,8 @@ export interface NewItem {
   images?: StoryImageUpload[];
   /** סרטון: קישור שיתוף ל-Google Drive במקום קובץ */
   externalUrl?: string;
+  /** הקלטה: גל הקול שחושב מהקובץ המקומי */
+  waveform?: number[];
 }
 
 export const api = {
@@ -128,7 +130,8 @@ export const api = {
   restore: (id: string) => post(`/items/${id}/restore`),
   comment: (id: string, body: string, kind: 'comment' | 'memory') => post(`/items/${id}/comments`, { body, kind }),
   removeComment: (id: string) => del(`/comments/${id}`),
-  random: (exclude: string[]) => get<{ item: ItemSummary | null; total: number }>(`/random${qs({ exclude: exclude.join(',') })}`),
+  random: (exclude: string[], kind?: 'story') => get<{ item: ItemSummary | null; total: number }>(`/random${qs({ exclude: exclude.join(','), kind })}`),
+  saveWaveform: (id: string, waveform: number[]) => put(`/items/${id}/waveform`, { waveform }),
   search: (q: string, kind?: ItemKind) => get<SearchResults>(`/search${qs({ q, kind })}`),
   tags: () => get<TagInfo[]>('/tags'),
   attachable: (kind?: ItemKind) => get<ItemSummary[]>(`/attachable${qs({ kind })}`),
@@ -162,6 +165,7 @@ export const api = {
     stats: () => get<ArchiveStats>('/admin/stats'),
     backups: () => get<BackupStatus>('/admin/backups'),
     runBackup: () => post<{ status: string; message: string }>('/admin/backups/run'),
+    missingWaveforms: () => get<{ itemId: string; fileId: string; size: number }[]>('/admin/waveforms/missing'),
     missingThumbs: () => get<{ itemId: string; fileId: string; mime: string; size: number; name: string }[]>('/admin/thumbs/missing'),
     attachThumb: (itemId: string, b: { fileId: string; width?: number; height?: number }) => post(`/admin/items/${itemId}/thumb`, b),
     audit: () => get<{ id: number; action: string; target_type: string; target_id: string; created_at: number; user_name: string }[]>('/admin/audit'),

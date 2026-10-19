@@ -51,6 +51,8 @@ export interface ItemSummary {
   externalVideo: ExternalVideo | null;
   /** לסיפור: תמונה ממוזערת של תמונת הסיפור הראשונה (אם יש) */
   coverFileId: string | null;
+  /** להקלטה: גל הקול (ערכי עוצמה 0-99), אם כבר חושב */
+  waveform: number[] | null;
   commentCount: number;
   deletedAt: number | null;
 }

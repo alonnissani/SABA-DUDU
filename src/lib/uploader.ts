@@ -2,6 +2,7 @@ import type { ItemDetail, ItemKind } from '../../shared/types';
 import { ALLOWED_MIME, MAX_FILE_SIZE, formatBytes, resolveMime } from '../../shared/constants';
 import { api, uploadFile, type NewItem, type StoryImageUpload } from '../api/client';
 import { audioMeta, imageMeta, videoMeta, type MediaMeta } from './media';
+import { WAVE_MAX_BYTES, computePeaks } from './waveform';
 
 export type MediaKind = Exclude<ItemKind, 'story'>;
 
@@ -46,6 +47,8 @@ export async function uploadAsItem(
   if (kind === 'photo' || (kind === 'document' && mime.startsWith('image/'))) meta = await imageMeta(file);
   else if (kind === 'video') meta = await videoMeta(file);
   else if (kind === 'audio') meta = await audioMeta(file);
+  // גל הקול — מהקובץ המקומי, לפני ההעלאה (לא חובה; אם לא הצליח — יחושב בהשמעה הראשונה)
+  const waveform = kind === 'audio' && file.size <= WAVE_MAX_BYTES ? await computePeaks(await file.arrayBuffer()) : null;
   if (signal?.aborted) throw new DOMException('aborted', 'AbortError');
 
   onStage('uploading', 0);
@@ -65,7 +68,7 @@ export async function uploadAsItem(
     }
   }
   onStage('saving', 1);
-  return api.create({ ...fields, kind, files });
+  return api.create({ ...fields, kind, files, ...(waveform ? { waveform } : {}) });
 }
 
 /**

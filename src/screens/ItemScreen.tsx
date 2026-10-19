@@ -214,7 +214,7 @@ function MediaView({ item }: { item: ItemDetail }) {
   if (item.kind === 'audio') {
     return (
       <div className="audio-stage">
-        <AudioPlayer src={fileUrl(original.id)} knownDuration={original.duration} title={item.title} />
+        <AudioPlayer src={fileUrl(original.id)} knownDuration={original.duration} title={item.title} waveform={item.waveform} itemId={item.id} fileSize={original.size} />
       </div>
     );
   }
@@ -315,7 +315,7 @@ function LinkedItems({ item }: { item: ItemDetail }) {
                 {l.kind === 'audio' && o ? (
                   <div className="card audio-card">
                     <Link to={`/item/${l.id}`} className="card__title card__title--link">{l.title}</Link>
-                    <AudioPlayer src={fileUrl(o.id)} knownDuration={o.duration} title={l.title} compact />
+                    <AudioPlayer src={fileUrl(o.id)} knownDuration={o.duration} title={l.title} compact waveform={l.waveform} itemId={l.id} fileSize={o.size} />
                   </div>
                 ) : (
                   <ItemRowCard item={l} to={`/item/${l.id}`} />

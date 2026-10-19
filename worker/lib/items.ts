@@ -57,6 +57,19 @@ function chunks<T>(arr: T[], size = 90): T[][] {
   return out;
 }
 
+/** גל קול שמור: מספרים 0-99 מופרדים בפסיקים */
+export function parsePeaks(raw: string): number[] | null {
+  const list = raw.split(',').map(Number);
+  return list.length >= 32 && list.every((n) => Number.isInteger(n) && n >= 0 && n <= 99) ? list : null;
+}
+
+/** אימות גל קול שהתקבל מהדפדפן — מחזיר את הצורה השמורה, או null אם לא תקין */
+export function serializePeaks(v: unknown): string | null {
+  if (!Array.isArray(v) || v.length < 32 || v.length > 400) return null;
+  if (!v.every((n) => typeof n === 'number' && Number.isInteger(n) && n >= 0 && n <= 99)) return null;
+  return v.join(',');
+}
+
 function excerptOf(body: string | null): string | null {
   if (!body) return null;
   const flat = body.replace(/\s+/g, ' ').trim();
@@ -84,11 +97,12 @@ export async function toSummaries(db: D1Database, rows: ItemRow[]): Promise<Item
   const counts = new Map<string, number>();
   const external = new Map<string, ExternalVideo>();
   const covers = new Map<string, string>();
+  const peaks = new Map<string, number[]>();
   const drive = new Map<string, { file_id: string; mime: string; width: number | null; height: number | null; size: number | null }>();
 
   for (const part of chunks(ids)) {
     const ph = placeholders(part.length);
-    const [f, t, c, x, v, d] = await db.batch([
+    const [f, t, c, x, v, d, w] = await db.batch([
       db.prepare(
         `SELECT id, item_id, role, mime, size, original_name, width, height, duration FROM files
          WHERE item_id IN (${ph}) ORDER BY position, created_at`,
@@ -107,7 +121,12 @@ export async function toSummaries(db: D1Database, rows: ItemRow[]): Promise<Item
       ).bind(...part),
       // תמונות מ-Google Drive: הקובץ נשאר בדרייב, כאן רק המזהה והמידות
       db.prepare(`SELECT item_id, file_id, mime, width, height, size FROM drive_photos WHERE item_id IN (${ph})`).bind(...part),
+      db.prepare(`SELECT item_id, peaks FROM audio_peaks WHERE item_id IN (${ph})`).bind(...part),
     ]);
+    for (const row of w.results as unknown as { item_id: string; peaks: string }[]) {
+      const list = parsePeaks(row.peaks);
+      if (list) peaks.set(row.item_id, list);
+    }
     for (const row of f.results as unknown as FileRow[]) {
       const list = files.get(row.item_id) ?? [];
       list.push(fileInfo(row));
@@ -148,6 +167,7 @@ export async function toSummaries(db: D1Database, rows: ItemRow[]): Promise<Item
     files: r.kind === 'story' ? [] : drive.has(r.id) ? driveFiles(drive.get(r.id)!) : files.get(r.id) ?? [],
     externalVideo: external.get(r.id) ?? null,
     coverFileId: covers.get(r.id) ?? null,
+    waveform: r.kind === 'audio' ? peaks.get(r.id) ?? null : null,
     commentCount: counts.get(r.id) ?? 0,
     deletedAt: r.deleted_at,
   }));

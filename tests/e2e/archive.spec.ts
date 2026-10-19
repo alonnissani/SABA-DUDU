@@ -152,11 +152,36 @@ test('Google Drive: חיבור התיקייה, הגלריה מהדרייב ות�
   await expect.poll(() => full.evaluate((el: HTMLImageElement) => el.naturalWidth)).toBeGreaterThan(0);
   await page.getByRole('button', { name: 'הגדלה' }).click();
   await expect(page.locator('.lightbox__img')).toHaveAttribute('style', /scale\(1\.5\)/);
-  await expect(page.getByRole('link', { name: 'הורדת קובץ המקור' })).toHaveAttribute('href', /gd:.*download=1/);
+  // בתוך האתר: בלי קישור ל-Google Drive (גם לא ״הורדה״ שמעבירה לגוגל) ובלי תאריך העלאה
+  await expect(page.getByRole('link', { name: 'הורדת קובץ המקור' })).toHaveCount(0);
+  await expect(lb.locator('a[href*="google.com"]')).toHaveCount(0);
+  await expect(lb.locator('.meta')).toHaveCount(0);
+  expect(await lb.evaluate((el) => getComputedStyle(el.querySelector('.lightbox__img img:last-child')!).objectFit)).toBe('contain');
   await page.waitForTimeout(400);
   await page.screenshot({ path: path.join(SHOTS, '06-lightbox.png') });
   await page.getByRole('button', { name: 'סגירה' }).click();
   await expect(lb).toBeHidden();
+  await expect(page).toHaveURL(/\/c\/photo$/);
+  // ״חזרה״ בטלפון סוגרת את התצוגה ונשארים בגלריה
+  await page.locator('.photo-tile__btn').first().click();
+  await expect(lb).toBeVisible();
+  await page.goBack();
+  await expect(lb).toBeHidden();
+  await expect(page).toHaveURL(/\/c\/photo$/);
+  await expect(page.locator('.photo-tile').first()).toBeVisible();
+  // החלקה עוברת לתמונה הבאה (גרירה ימינה = הבאה, בעברית)
+  await page.locator('.photo-tile__btn').first().click();
+  await expect(page.locator('.lightbox__count')).toHaveText(/^1 \/ /);
+  const stage = (await page.locator('.lightbox__stage').boundingBox())!;
+  await page.mouse.move(stage.x + stage.width * 0.3, stage.y + stage.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(stage.x + stage.width * 0.55, stage.y + stage.height / 2, { steps: 6 });
+  await page.mouse.move(stage.x + stage.width * 0.75, stage.y + stage.height / 2, { steps: 6 });
+  await page.mouse.up();
+  await expect(page.locator('.lightbox__count')).toHaveText(/^2 \/ /);
+  await page.getByRole('button', { name: 'סגירה' }).click();
+  await expect(lb).toBeHidden();
+  await expect(page).toHaveURL(/\/c\/photo$/);
   // הדף ״הוספת תמונות״ מפנה עכשיו לתיקייה
   await page.goto('/c/photo/new');
   await expect(page.getByRole('link', { name: 'הוספת תמונות לדרייב' })).toBeVisible();
@@ -171,10 +196,54 @@ test('העלאת הקלטה, נגן שמע ואורך ההקלטה', async ({ pa
   await expect(page).toHaveURL(/\/c\/audio$/, { timeout: 30_000 });
   const card = page.locator('.audio-card').first();
   await expect(card.locator('.player__time').last()).toHaveText('0:06');
+  // גל קול אמיתי — חושב מהקובץ בהעלאה ונשמר בשרת
+  await expect(card.locator('.wave__bars').first()).toBeVisible();
+  const audioItems = async () => ((await (await page.request.get('/api/items?kind=audio&sort=new&limit=50')).json()) as { items: { id: string; title: string; waveform: number[] | null; files: { id: string }[] }[] }).items;
+  const uploaded = (await audioItems()).find((i) => i.title === 'סבא שר ביום הולדת')!;
+  expect(uploaded.waveform).toHaveLength(160);
+  expect(Math.max(...uploaded.waveform!)).toBe(99);
+  // מהירות השמעה
+  await card.getByRole('button', { name: /מהירות השמעה/ }).click();
+  await expect(card.getByRole('button', { name: /מהירות השמעה/ })).toHaveText('1.25×');
   await card.getByRole('button', { name: /השמעת/ }).click();
   await expect(card.getByRole('button', { name: /השהיית/ })).toBeVisible();
+  expect(await card.locator('audio').evaluate((a: HTMLAudioElement) => a.playbackRate)).toBe(1.25);
+  // התקדמות: הזמן שעבר והזמן שנותר, והחלק ״שהושמע״ של הגל מתקדם
+  await expect(card.locator('.player__time').last()).toHaveText(/^−0:0\d$/);
+  await expect.poll(() => card.locator('.wave').evaluate((w) => parseFloat(getComputedStyle(w).getPropertyValue('--pct')))).toBeGreaterThan(5);
   await card.getByRole('button', { name: /השהיית/ }).click();
+  await card.getByRole('button', { name: /מהירות השמעה/ }).click({ clickCount: 4 });
+  await expect(card.getByRole('button', { name: /מהירות השמעה/ })).toHaveText('1×');
+  await page.waitForTimeout(300);
   await shot(page, '07-audio-list');
+
+  // הקלטה ״ישנה״ בלי גל קול — הגל מחושב בהשמעה הראשונה ונשמר; ההקלטה עצמה לא משתנה
+  const origin = new URL(page.url()).origin;
+  const { readFileSync } = await import('node:fs');
+  const bytes = readFileSync(fx('tone.wav'));
+  const up = (await (await page.request.post('/api/uploads/direct?kind=audio&role=original&name=old.wav', { headers: { origin, 'content-type': 'audio/wav' }, data: bytes })).json()) as { id: string };
+  const created = await page.request.post('/api/items', { headers: { origin }, data: { kind: 'audio', title: 'הקלטה ישנה של סבא', files: [{ id: up.id, duration: 6 }] } });
+  expect(created.status()).toBe(201);
+  const old = (await audioItems()).find((i) => i.title === 'הקלטה ישנה של סבא')!;
+  expect(old.waveform).toBeNull();
+  await page.reload();
+  const oldCard = page.locator('.audio-card', { hasText: 'הקלטה ישנה של סבא' });
+  await expect(oldCard.locator('.wave--flat')).toBeVisible();
+  await oldCard.getByRole('button', { name: /השמעת/ }).click();
+  await expect(oldCard.locator('.wave__bars').first()).toBeVisible({ timeout: 15_000 });
+  await oldCard.getByRole('button', { name: /השהיית/ }).click();
+  await expect.poll(async () => (await audioItems()).find((i) => i.title === 'הקלטה ישנה של סבא')!.waveform?.length ?? 0).toBe(160);
+  const original = await page.request.get(`/api/files/${up.id}`);
+  expect(Buffer.from(await original.body()).equals(bytes)).toBe(true);
+
+  // השמעה ברצף: בסוף ההקלטה הראשונה מתחילה הבאה ברשימה
+  await expect(page.getByRole('button', { name: 'השמעה ברצף' })).toHaveAttribute('aria-pressed', 'true');
+  const cards = page.locator('.audio-card');
+  await cards.nth(0).getByRole('button', { name: /השמעת/ }).click();
+  await expect(cards.nth(0).getByRole('button', { name: /השהיית/ })).toBeVisible();
+  await cards.nth(0).locator('audio').evaluate((a: HTMLAudioElement) => { a.currentTime = Math.max(0, a.duration - 0.4); });
+  await expect(cards.nth(1).getByRole('button', { name: /השהיית/ })).toBeVisible({ timeout: 10_000 });
+  await cards.nth(1).getByRole('button', { name: /השהיית/ }).click();
 });
 
 test('סרטון: רק קישור Drive (אין העלאה מהמכשיר); סרטון ישן שהועלה כקובץ ממשיך לעבוד; העלאת מסמך', async ({ page }) => {
@@ -329,13 +398,43 @@ test('זיכרון אקראי במסך הבית — תמונות מהגלריה 
   for (const src of seen) expect(src).toContain('/api/files/gd:');
   await page.waitForTimeout(500);
   await shot(page, '14-home-memory');
-  // קומפקטי, ונפתח בגודל מלא בלחיצה
-  const h = await img.evaluate((el) => ({ h: (el as HTMLImageElement).offsetHeight, vh: innerHeight }));
-  expect(h.h).toBeLessThanOrEqual(Math.min(0.24 * h.vh, 190) + 1);
+  // תמונה גדולה: כמעט כל רוחב הכרטיס (אופקית) או עד הגובה המרבי (אנכית); נפתחת בגודל מלא בלחיצה
+  const big = await img.evaluate((el: HTMLImageElement) => {
+    const r = el.getBoundingClientRect();
+    const card = el.closest('.memory')!.getBoundingClientRect();
+    return { w: r.width, h: r.height, cw: card.width, vh: innerHeight };
+  });
+  expect(big.w > big.cw * 0.85 || big.h >= Math.min(0.62 * big.vh, 560) - 2).toBe(true);
   await page.locator('.memory__card').click();
   await expect(page.locator('.lightbox')).toBeVisible();
   await expect(page.locator('.lightbox .lightbox__img img').last()).toHaveAttribute('src', /\/api\/files\/gd:/);
   await page.getByRole('button', { name: 'סגירה' }).click();
+  await expect(page.locator('.lightbox')).toHaveCount(0);
+  await expect(page).toHaveURL(/\/home$/);
+
+  // מתחת לתמונה — סיפור אקראי: כותרת, קטע קצר (לא כולו) וקישור לסיפור המלא; בלי תמונת הסיפור
+  const storyBox = page.locator('.memory__story');
+  await expect(storyBox).toBeVisible();
+  await expect(storyBox.locator('.memory__story-title')).not.toBeEmpty();
+  await expect(storyBox.locator('img')).toHaveCount(0);
+  const ex = storyBox.locator('.memory__story-excerpt');
+  if (await ex.count()) {
+    const lines = await ex.evaluate((el) => el.getBoundingClientRect().height / parseFloat(getComputedStyle(el).lineHeight));
+    expect(lines).toBeLessThanOrEqual(3.1);
+  }
+  // ״עוד זיכרון״ מחליף גם את הסיפור (כשיש יותר מסיפור אחד)
+  const stories = ((await (await page.request.get('/api/random?kind=story')).json()) as { total: number }).total;
+  if (stories > 1) {
+    const title = await storyBox.locator('.memory__story-title').textContent();
+    await page.getByRole('button', { name: 'עוד זיכרון' }).click();
+    await expect.poll(() => storyBox.locator('.memory__story-title').textContent()).not.toBe(title);
+  }
+  await page.waitForTimeout(400);
+  await shot(page, '14b-home-memory-story');
+  const storyTitle = (await storyBox.locator('.memory__story-title').textContent())!;
+  await storyBox.getByRole('link', { name: 'לקריאת הסיפור המלא' }).click();
+  await expect(page).toHaveURL(/\/item\//);
+  await expect(page.locator('.sheet__title')).toHaveText(storyTitle);
 });
 
 test('לשונית ״בית״ בתפריט התחתון — מכל לשונית, עם חיווי', async ({ page }) => {
@@ -419,8 +518,9 @@ test('״זיכרון מסבא״ מציג תמונה אנכית ואופקית ב
         // היחס המוצג זהה ליחס המקורי — כלומר אין חיתוך
         expect(Math.abs(m.rw / m.rh - m.nw / m.nh)).toBeLessThan(0.03);
         expect(m.rw).toBeLessThanOrEqual(m.vw);
-        // הכרטיס כולו קומפקטי — כולל הכותרת, הפרטים והכפתור
-        expect((await page.locator('.memory').boundingBox())!.height).toBeLessThan(420);
+        // גדולה: אופקית — כמעט כל רוחב הכרטיס; אנכית — עד הגובה המרבי
+        const cw = (await page.locator('.memory').boundingBox())!.width;
+        expect(m.rw > cw * 0.85 || m.rh >= Math.min(0.62 * 844, 560) - 2).toBe(true);
         const shape = m.nh > m.nw ? 'portrait' : 'landscape';
         if (!seen.has(shape)) {
           seen.add(shape);
@@ -454,7 +554,19 @@ test('גלריה: ממוזערות בלבד, התצוגה הגדולה נטענ�
   expect(requested.every((id) => id.endsWith(':t'))).toBe(true);
   expect(await page.locator('.photo-tile img[loading="lazy"]').count()).toBeGreaterThan(0);
   expect(pages.every((l) => l === '30')).toBe(true);
-  expect(await page.locator('.gallery').evaluate((el) => getComputedStyle(el).columnCount)).toBe('3');
+  expect(await page.locator('.gallery').evaluate((el) => getComputedStyle(el).gridTemplateColumns.split(' ').length)).toBe(2);
+  // קולאז׳: כל תמונה ביחס הממדים המקורי שלה (בלי חיתוך), וחלק מהאופקיות ברוחב כפול
+  await expect.poll(() => page.locator('.photo-tile img').evaluateAll((els) => els.filter((e) => (e as HTMLImageElement).naturalWidth > 0).length)).toBeGreaterThan(8);
+  const ratios = await page.locator('.photo-tile img').evaluateAll((els) =>
+    (els as HTMLImageElement[]).filter((e) => e.naturalWidth > 0).map((e) => {
+      const r = e.getBoundingClientRect();
+      return Math.abs(r.width / r.height - e.naturalWidth / e.naturalHeight) / (e.naturalWidth / e.naturalHeight);
+    }),
+  );
+  expect(Math.max(...ratios)).toBeLessThan(0.03);
+  expect(await page.locator('.gallery__cell--wide').count()).toBeGreaterThan(0);
+  const cellW = await page.locator('.gallery__cell').evaluateAll((els) => els.map((e) => Math.round(e.getBoundingClientRect().width)));
+  expect(new Set(cellW).size).toBeGreaterThan(1);
   // פתיחה — רק אז נטענת התצוגה הגדולה
   await page.locator('.photo-tile__btn').first().click();
   await expect(page.locator('.lightbox')).toBeVisible();
@@ -1162,7 +1274,7 @@ test.describe('מחשב', () => {
     await shot(page, '17-desktop-home');
     await page.goto('/c/photo');
     await page.waitForTimeout(600);
-    expect(await page.locator('.gallery').evaluate((el) => getComputedStyle(el).columnCount)).toBe('7');
+    expect(await page.locator('.gallery').evaluate((el) => getComputedStyle(el).gridTemplateColumns.split(' ').length)).toBeGreaterThanOrEqual(4);
     await shot(page, '18-desktop-gallery');
     await page.goto('/c/video');
     expect(await page.locator('.grid--media').evaluate((el) => getComputedStyle(el).gridTemplateColumns.split(' ').length)).toBe(6);
