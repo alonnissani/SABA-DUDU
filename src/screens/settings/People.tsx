@@ -49,8 +49,9 @@ function OneTimeLink({ url, text, onDone }: { url: string; text: string; onDone:
 }
 
 export function InvitesSection() {
+  const { isAdmin } = useApp();
   const toast = useToast();
-  const invites = useLoad(() => api.admin.invites(), []);
+  const invites = useLoad(() => api.invites.list(), []);
   const [role, setRole] = useState<'member' | 'admin'>('member');
   const [email, setEmail] = useState('');
   const [note, setNote] = useState('');
@@ -64,7 +65,7 @@ export function InvitesSection() {
     setBusy(true);
     setError(null);
     try {
-      const res = await api.admin.createInvite({ role, email: email || undefined, note: note || undefined, days });
+      const res = await api.invites.create({ role: isAdmin ? role : 'member', email: email || undefined, note: note || undefined, days });
       setCreated(res.url);
       setEmail('');
       setNote('');
@@ -77,7 +78,7 @@ export function InvitesSection() {
   };
   const revoke = async (id: string) => {
     try {
-      await api.admin.revokeInvite(id);
+      await api.invites.revoke(id);
       toast('ההזמנה בוטלה');
       invites.reload();
     } catch (err) {
@@ -96,12 +97,14 @@ export function InvitesSection() {
           <h2 className="panel__title">הזמנה חדשה</h2>
           <p className="muted">אין הרשמה ציבורית. כל בן משפחה מצטרף דרך קישור אישי וחד-פעמי.</p>
           <div className="field-row">
-            <Field label="הרשאה">
-              <select value={role} onChange={(e) => setRole(e.target.value as 'member' | 'admin')}>
-                <option value="member">בן/בת משפחה (צפייה והוספה)</option>
-                <option value="admin">מנהל/ת מערכת (כולל מחיקה וניהול)</option>
-              </select>
-            </Field>
+            {isAdmin && (
+              <Field label="הרשאה">
+                <select value={role} onChange={(e) => setRole(e.target.value as 'member' | 'admin')}>
+                  <option value="member">בן/בת משפחה (צפייה והוספה)</option>
+                  <option value="admin">מנהל/ת מערכת (כולל מחיקה וניהול)</option>
+                </select>
+              </Field>
+            )}
             <Field label="תוקף">
               <select value={days} onChange={(e) => setDays(Number(e.target.value))}>
                 <option value={1}>יום אחד</option>
@@ -129,7 +132,7 @@ export function InvitesSection() {
       )}
 
       <div className="panel">
-        <h2 className="panel__title">הזמנות קודמות</h2>
+        <h2 className="panel__title">{isAdmin ? 'הזמנות קודמות' : 'ההזמנות שלי'}</h2>
         {invites.loading ? (
           <Spinner />
         ) : invites.error ? (

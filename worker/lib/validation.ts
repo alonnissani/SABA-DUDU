@@ -13,9 +13,14 @@ export function parseMediaKind(value: unknown): MediaKind {
 export const STORY_PREFIX = 'stories/';
 
 /** העלאה: קטגוריה רגילה, או ״story״ — תמונה של סיפור (נבדקת כמו תמונה, נשמרת בנתיב הסיפורים) */
+export const VIDEO_LINK_ONLY = 'סרטונים מוסיפים כקישור ל-Google Drive';
+
 export function parseUploadKind(value: unknown): { kind: MediaKind; story: boolean } {
   if (value === 'story') return { kind: 'photo', story: true };
-  return { kind: parseMediaKind(value), story: false };
+  const kind = parseMediaKind(value);
+  // סרטונים לא נשמרים באתר — רק קישור לקובץ ב-Google Drive
+  if (kind === 'video') fail(400, VIDEO_LINK_ONLY);
+  return { kind, story: false };
 }
 
 export function parseFileRole(value: unknown): FileRole {

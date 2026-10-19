@@ -11,6 +11,7 @@ import {
 } from '../lib/items';
 import { reindexItem } from '../lib/search';
 import { getSetting } from '../lib/settings';
+import { VIDEO_LINK_ONLY } from '../lib/validation';
 import { clearFileCaches } from './files';
 import { attachStoryImages, minStoryImagePosition, parseStoryImageInputs, removeStoryImage } from '../lib/storyImages';
 
@@ -199,6 +200,7 @@ itemRoutes.post('/items', async (c) => {
     ? parseExternalUrl(b.externalUrl)
     : null;
   if (external && fileInputs.length) fail(400, 'יש לבחור קובץ או קישור — לא את שניהם');
+  if (kind === 'video' && !external) fail(400, VIDEO_LINK_ONLY);
   if (kind !== 'story' && !external) {
     const originals = fileRows.filter((f) => f.role === 'original');
     if (originals.length !== 1) fail(400, 'יש לצרף קובץ אחד');

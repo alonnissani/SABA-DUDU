@@ -1,7 +1,7 @@
 import { driveVirtualId } from '../../shared/drive';
 import { Hono } from 'hono';
 import type { AppEnv } from '../env';
-import type { AdminUser, ArchiveStats, BackupRun, BackupStatus, HeroTraits, InviteInfo, ItemKind } from '../../shared/types';
+import type { AdminUser, ArchiveStats, BackupRun, BackupStatus, HeroTraits, ItemKind } from '../../shared/types';
 import { ITEM_KINDS } from '../../shared/constants';
 import { requireAdmin, sessionCache } from '../lib/auth';
 import { audit } from '../lib/audit';
@@ -74,49 +74,6 @@ adminRoutes.post('/users/:id/reset-link', async (c) => {
     .run();
   await audit(c.env.DB, admin.id, 'user.reset_link', 'user', id);
   return c.json({ url: `${new URL(c.req.url).origin}/reset/${token}`, expiresInDays: 3 });
-});
-
-// ---------- הזמנות ----------
-
-adminRoutes.get('/invites', async (c) => {
-  requireAdmin(c);
-  const res = await c.env.DB.prepare(
-    `SELECT i.*, u.name AS creator_name, uu.name AS used_name FROM invites i JOIN users u ON u.id = i.created_by
-     LEFT JOIN users uu ON uu.id = i.used_by ORDER BY i.created_at DESC LIMIT 100`,
-  ).all<Record<string, never>>();
-  const invites: InviteInfo[] = res.results.map((r) => ({
-    id: r.id, email: r.email, note: r.note, role: r.role, createdAt: r.created_at, expiresAt: r.expires_at,
-    usedAt: r.used_at, usedBy: r.used_name, revokedAt: r.revoked_at, createdBy: r.creator_name,
-  }));
-  return c.json(invites);
-});
-
-adminRoutes.post('/invites', async (c) => {
-  const admin = requireAdmin(c);
-  const b = await readJson(c.req.raw);
-  const role = b.role === 'admin' ? 'admin' : 'member';
-  const email = str(b.email, 200, 'דוא״ל')?.toLowerCase() ?? null;
-  if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) fail(400, 'כתובת דוא״ל לא תקינה');
-  const note = str(b.note, 200, 'הערה');
-  const days = intOrNull(b.days, 'תוקף', 1, 30) ?? 7;
-  const token = randomToken();
-  const id = newId();
-  const t = now();
-  await c.env.DB.prepare(
-    'INSERT INTO invites (id, token_hash, email, note, role, created_by, created_at, expires_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
-  )
-    .bind(id, await sha256Hex(token), email, note, role, admin.id, t, t + days * 24 * 60 * 60 * 1000)
-    .run();
-  await audit(c.env.DB, admin.id, 'invite.create', 'invite', id, { role, email });
-  // הטוקן עצמו לא נשמר — הקישור מוצג פעם אחת בלבד
-  return c.json({ id, url: `${new URL(c.req.url).origin}/invite/${token}`, expiresAt: t + days * 24 * 60 * 60 * 1000 }, 201);
-});
-
-adminRoutes.delete('/invites/:id', async (c) => {
-  const admin = requireAdmin(c);
-  await c.env.DB.prepare('UPDATE invites SET revoked_at = ? WHERE id = ? AND used_at IS NULL').bind(now(), c.req.param('id')).run();
-  await audit(c.env.DB, admin.id, 'invite.revoke', 'invite', c.req.param('id'));
-  return c.json({ ok: true });
 });
 
 // ---------- הגדרות האתר ----------

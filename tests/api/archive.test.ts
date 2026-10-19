@@ -24,13 +24,47 @@ describe('הקמה, התחברות והזמנות', () => {
 
   it('אין הרשמה ציבורית — הצטרפות רק בקישור הזמנה חד-פעמי', async () => {
     const admin = await setupAdmin();
-    const inv = (await (await admin.post('/api/admin/invites', { role: 'member' })).json()) as { url: string };
+    const inv = (await (await admin.post('/api/invites', { role: 'member' })).json()) as { url: string };
     const token = inv.url.split('/invite/')[1];
     const a = new Client();
     expect((await a.post('/api/auth/accept-invite', { token, name: 'א', email: 'a@f.test', password: 'password-1' })).status).toBe(200);
     const b = new Client();
     expect((await b.post('/api/auth/accept-invite', { token, name: 'ב', email: 'b@f.test', password: 'password-1' })).status).toBe(410);
     expect((await b.post('/api/auth/accept-invite', { token: 'x'.repeat(43), name: 'ב', email: 'b@f.test', password: 'password-1' })).status).toBe(404);
+  });
+
+  it('בן משפחה יכול להזמין בני משפחה — לא מנהלים, ורואה ומבטל רק את ההזמנות שלו', async () => {
+    const admin = await setupAdmin();
+    const member = await inviteMember(admin);
+    const other = await inviteMember(admin, 'other@family.test', 'אחר');
+
+    expect((await member.post('/api/invites', { role: 'admin' })).status).toBe(403);
+    const res = await member.post('/api/invites', { note: 'הנכדה' });
+    expect(res.status).toBe(201);
+    const inv = (await res.json()) as { id: string; url: string };
+    const row = await env.DB.prepare('SELECT role, created_by FROM invites WHERE id = ?').bind(inv.id).first<{ role: string }>();
+    expect(row!.role).toBe('member');
+
+    // רואה רק את שלו; המנהל רואה הכול
+    const mine = (await (await member.get('/api/invites')).json()) as { id: string }[];
+    expect(mine.map((i) => i.id)).toEqual([inv.id]);
+    expect(((await (await other.get('/api/invites')).json()) as unknown[]).length).toBe(0);
+    expect(((await (await admin.get('/api/invites')).json()) as unknown[]).length).toBeGreaterThanOrEqual(3);
+
+    // לא יכול לבטל הזמנה של אחר
+    expect((await other.del(`/api/invites/${inv.id}`)).status).toBe(403);
+
+    // ההצטרפות בקישור שלו עובדת, כבן משפחה
+    const joined = new Client();
+    const token = inv.url.split('/invite/')[1];
+    expect((await joined.post('/api/auth/accept-invite', { token, name: 'נכדה', email: 'g@f.test', password: 'password-1' })).status).toBe(200);
+    const me = (await (await joined.get('/api/auth/status')).json()) as { user: { role: string } };
+    expect(me.user.role).toBe('member');
+
+    // ביטול הזמנה משלו
+    const second = (await (await member.post('/api/invites', {})).json()) as { id: string };
+    expect((await member.del(`/api/invites/${second.id}`)).status).toBe(200);
+    expect((await new Client().get('/api/invites')).status).toBe(401);
   });
 
   it('התחברות עם סיסמה שגויה נכשלת, ומוגבלת אחרי ניסיונות רבים', async () => {
@@ -44,7 +78,7 @@ describe('הקמה, התחברות והזמנות', () => {
 
   it('חוסם בקשות משנות ממקור זר (CSRF)', async () => {
     const admin = await setupAdmin();
-    const res = await admin.req('/api/admin/invites', {
+    const res = await admin.req('/api/invites', {
       method: 'POST', json: { role: 'member' }, headers: { origin: 'https://evil.example' },
     });
     expect(res.status).toBe(403);
@@ -59,6 +93,23 @@ describe('הקמה, התחברות והזמנות', () => {
 });
 
 describe('הרשאות מחיקה', () => {
+  it('רק מנהל מוחק — תמונות, סיפורים, סרטונים ומסמכים', async () => {
+    const admin = await setupAdmin();
+    const member = await inviteMember(admin);
+    const photo = await drivePhoto(admin);
+    const doc = await createMedia(member, 'document', PDF, 'מכתב.pdf', 'application/pdf');
+    const video = (await (await member.post('/api/items', { kind: 'video', title: 'v', externalUrl: 'https://drive.google.com/file/d/1AbCdEfGhIjKlMnOpQrStUvWxYz012345/view' })).json()) as { id: string };
+    const img = await storyImageUpload(member);
+    const story = (await (await member.post('/api/items', { kind: 'story', title: 's', body: 'b', storyType: 'family', images: [{ fileId: img.id }] })).json()) as { id: string; storyImages: { id: string }[] };
+    for (const id of [photo.id, doc.id, video.id, story.id]) {
+      expect((await member.del(`/api/items/${id}`)).status, id).toBe(403);
+    }
+    expect((await member.del(`/api/items/${story.id}/images/${story.storyImages[0].id}`)).status).toBe(403);
+    for (const id of [photo.id, doc.id, video.id, story.id]) {
+      expect((await admin.del(`/api/items/${id}`)).status, id).toBe(200);
+    }
+  });
+
   it('משתמש רגיל לא יכול למחוק, לשחזר או לערוך — גם תוכן שהעלה בעצמו', async () => {
     const admin = await setupAdmin();
     const member = await inviteMember(admin);
@@ -171,9 +222,9 @@ describe('העלאת קבצים וגישה אליהם', () => {
     const partSize = 10 * 1024 * 1024;
     const size = partSize + 1234;
     const data = new Uint8Array(size);
-    data.set(MP4_HEAD, 0);
+    data.set(MP3, 0);
     const start = (await (await admin.post('/api/uploads/multipart', {
-      kind: 'video', name: 'חתונה.mp4', mime: 'video/mp4', size,
+      kind: 'audio', name: 'חתונה.mp3', mime: 'audio/mpeg', size,
     })).json()) as { uploadId: string; parts: number };
     expect(start.parts).toBe(2);
     const parts = [];
@@ -187,10 +238,10 @@ describe('העלאת קבצים וגישה אליהם', () => {
     expect(done.status).toBe(200);
     const file = (await done.json()) as { id: string; size: number };
     expect(file.size).toBe(size);
-    const item = await admin.post('/api/items', { kind: 'video', title: 'חתונה', files: [{ id: file.id, duration: 12.5 }] });
+    const item = await admin.post('/api/items', { kind: 'audio', title: 'חתונה', files: [{ id: file.id, duration: 12.5 }] });
     expect(item.status).toBe(201);
-    const head = await admin.req(`/api/files/${file.id}`, { headers: { range: 'bytes=0-15' } });
-    expect(new Uint8Array(await head.arrayBuffer())).toEqual(MP4_HEAD);
+    const head = await admin.req(`/api/files/${file.id}`, { headers: { range: 'bytes=0-19' } });
+    expect(new Uint8Array(await head.arrayBuffer())).toEqual(MP3);
   });
 });
 
@@ -359,9 +410,26 @@ describe('סרטון מקישור Google Drive', () => {
     for (const url of ['https://example.com/file/d/abc/view', 'javascript:alert(1)', 'https://drive.google.com/drive/folders/', 'לא קישור']) {
       expect((await admin.post('/api/items', { kind: 'video', title: 'x', externalUrl: url })).status, url).toBe(400);
     }
-    const up = (await (await upload(admin, 'video', MP4_HEAD, 'a.mp4', 'video/mp4')).json()) as { id: string };
+    const up = (await (await upload(admin, 'photo', PNG, 'a.png', 'image/png')).json()) as { id: string };
     const both = await admin.post('/api/items', { kind: 'video', title: 'x', files: [{ id: up.id }], externalUrl: `https://drive.google.com/file/d/${DRIVE_ID}/view` });
     expect(both.status).toBe(400);
+  });
+
+  it('סרטונים — רק קישור Drive: אין העלאת קובץ סרטון לאתר', async () => {
+    const admin = await setupAdmin();
+    const member = await inviteMember(admin);
+    for (const client of [admin, member]) {
+      const direct = await upload(client, 'video', MP4_HEAD, 'a.mp4', 'video/mp4');
+      expect(direct.status).toBe(400);
+      expect(((await direct.json()) as { error: string }).error).toContain('Google Drive');
+      const multi = await client.post('/api/uploads/multipart', { kind: 'video', name: 'big.mp4', mime: 'video/mp4', size: 20 * 1024 * 1024 });
+      expect(multi.status).toBe(400);
+      const noLink = await client.post('/api/items', { kind: 'video', title: 'בלי קישור' });
+      expect(noLink.status).toBe(400);
+      expect(((await noLink.json()) as { error: string }).error).toContain('Google Drive');
+    }
+    const { results } = await env.DB.prepare("SELECT id FROM files WHERE mime LIKE 'video/%'").all();
+    expect(results).toHaveLength(0);
   });
 
   it('מנהל יכול להחליף את הקישור; משתמש רגיל לא', async () => {

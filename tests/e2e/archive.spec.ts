@@ -2,6 +2,9 @@ import { devices, expect, test, type Page } from '@playwright/test';
 import path from 'node:path';
 import { FIXTURES } from './global-setup';
 import { MOCK_FOLDER, setDriveMock } from './drive-mock';
+import { execFileSync } from 'node:child_process';
+import { randomUUID } from 'node:crypto';
+import { statSync } from 'node:fs';
 
 // תיקיית Google Drive המדומה: 44 תמונות (אופקיות ואנכיות), חלקן בתיקיית משנה
 const DRIVE_URL = `https://drive.google.com/drive/folders/${MOCK_FOLDER}?usp=sharing`;
@@ -19,6 +22,26 @@ const SHOTS = path.resolve('test-results/screens');
 const SETUP_TOKEN = process.env.E2E_SETUP_TOKEN ?? 'local-dev-setup-token';
 const ADMIN = { name: 'מנהל הבדיקה', email: 'admin@e2e.test', password: 'e2e-admin-pass' };
 const fx = (f: string) => path.join(FIXTURES, f);
+/**
+ * סרטון ״ישן״ שהועלה לאתר לפני שהסרטונים עברו לקישורי Drive בלבד.
+ * האתר כבר לא מאפשר ליצור כאלה, ולכן נכתב ישירות ל-D1 ול-R2 המקומיים (כמו npm run e2e:reset).
+ */
+function seedLegacyVideo(title: string) {
+  const itemId = randomUUID();
+  const fileId = randomUUID();
+  const key = `originals/video/legacy/${fileId}.webm`;
+  const wrangler = (args: string[]) => execFileSync('npx', ['wrangler', ...args], { stdio: 'pipe' });
+  wrangler(['r2', 'object', 'put', `saba-dudu-media/${key}`, '--local', '--file', fx('clip.webm'), '--content-type', 'video/webm']);
+  const size = statSync(fx('clip.webm')).size;
+  const t = Date.now();
+  const admin = "(SELECT id FROM users WHERE role = 'admin' ORDER BY created_at LIMIT 1)";
+  wrangler(['d1', 'execute', 'saba-dudu-db', '--local', '--command', [
+    `INSERT INTO items (id, kind, title, created_by, created_at, updated_at) VALUES ('${itemId}', 'video', '${title}', ${admin}, ${t}, ${t});`,
+    `INSERT INTO files (id, item_id, role, r2_key, mime, size, original_name, duration, created_by, created_at) VALUES ('${fileId}', '${itemId}', 'original', '${key}', 'video/webm', ${size}, 'clip.webm', 3, ${admin}, ${t});`,
+    `INSERT INTO transcripts (item_id, status, updated_at) VALUES ('${itemId}', 'none', ${t});`,
+  ].join(' ')]);
+  return itemId;
+}
 const shot = (page: Page, name: string) => page.screenshot({ path: path.join(SHOTS, `${name}.png`), fullPage: true });
 
 test.describe.configure({ mode: 'serial' });
@@ -154,13 +177,23 @@ test('העלאת הקלטה, נגן שמע ואורך ההקלטה', async ({ pa
   await shot(page, '07-audio-list');
 });
 
-test('העלאת סרטון ומסמך', async ({ page }) => {
+test('סרטון: רק קישור Drive (אין העלאה מהמכשיר); סרטון ישן שהועלה כקובץ ממשיך לעבוד; העלאת מסמך', async ({ page }) => {
   await login(page);
   await page.goto('/c/video/new');
-  await page.locator('input[type=file]').setInputFiles(fx('clip.webm'));
-  await page.locator('.pending__title').fill('ריקוד במסיבת יום ההולדת');
-  await page.getByRole('button', { name: 'שמירה' }).click();
-  await expect(page).toHaveURL(/\/c\/video$/, { timeout: 30_000 });
+  await expect(page.getByLabel('קישור שיתוף מ-Google Drive')).toBeVisible();
+  await expect(page.locator('input[type=file]')).toHaveCount(0);
+  await expect(page.getByText('העלאת קובץ מהמכשיר')).toHaveCount(0);
+  await shot(page, '08a-video-link-only');
+  // גם בטופס הסיפור אי אפשר להעלות קובץ סרטון
+  await page.goto('/c/story/new');
+  expect(await page.locator('.attach-actions input[type=file]').getAttribute('accept')).not.toContain('video');
+
+  // סרטון שהועלה לאתר בעבר (לפני השינוי) — מוצג ומתנגן כרגיל
+  const legacyId = seedLegacyVideo('ריקוד במסיבת יום ההולדת');
+  // עריכה דרך האתר מעדכנת גם את אינדקס החיפוש
+  const edited = await page.request.patch(`/api/items/${legacyId}`, { data: { title: 'ריקוד במסיבת יום ההולדת' }, headers: { origin: new URL(page.url()).origin } });
+  expect(edited.status()).toBe(200);
+  await page.goto('/c/video');
   await expect(page.locator('.media-card__dur')).toHaveText('0:03');
   await shot(page, '08-videos');
   await page.locator('.media-card').first().click();
@@ -302,7 +335,6 @@ test('סרטון מקישור Google Drive', async ({ page }) => {
   await login(page);
   const fileId = '1AbCdEfGhIjKlMnOpQrStUvWxYz012345';
   await page.goto('/c/video/new');
-  await page.getByRole('radio', { name: /קישור ל-Google Drive/ }).click();
   const input = page.getByLabel('קישור שיתוף מ-Google Drive');
   await input.fill('https://example.com/video');
   await expect(page.getByText('זה לא נראה כמו קישור לקובץ ב-Google Drive')).toBeVisible();
@@ -648,9 +680,47 @@ test('בן משפחה מוזמן — אין לו אפשרות מחיקה, והש
   const id = member.url().split('/item/')[1];
   const res = await member.request.delete(`/api/items/${id}`, { headers: { origin: new URL(member.url()).origin } });
   expect(res.status()).toBe(403);
+  // סרטונים ומסמכים — גם כאן אין מחיקה
+  for (const kind of ['video', 'document']) {
+    const list = (await (await member.request.get(`/api/items?kind=${kind}&limit=1`)).json()) as { items: { id: string }[] };
+    await member.goto(`/item/${list.items[0].id}`);
+    await expect(member.locator('.item__actions')).toBeVisible();
+    await expect(member.getByRole('button', { name: 'מחיקה' })).toHaveCount(0);
+    await expect(member.getByRole('button', { name: 'עריכה' })).toHaveCount(0);
+  }
+  // הגדרות: רק ״החשבון שלי״ ו״הזמנת בני משפחה״
   await member.goto('/settings');
-  await expect(member.getByRole('link', { name: 'ניהול משתמשים' })).toHaveCount(0);
+  await expect(member.locator('.settings__link')).toHaveCount(2);
+  await expect(member.locator('.settings__link')).toHaveText(['החשבון שלי', 'הזמנת בני משפחה']);
   await shot(member, '15-member-settings');
+  for (const sub of ['users', 'content', 'drive', 'backups']) {
+    await member.goto(`/settings/${sub}`);
+    await expect(member).toHaveURL(/\/settings$/);
+  }
+  // בן משפחה מזמין בן משפחה — בלי בחירת הרשאה
+  await member.goto('/settings/invites');
+  await expect(member.getByLabel('הרשאה')).toHaveCount(0);
+  await member.getByLabel(/למי ההזמנה/).fill('הנין');
+  await member.getByRole('button', { name: 'יצירת קישור הזמנה' }).click();
+  const memberInvite = await member.getByLabel('הקישור').inputValue();
+  expect(memberInvite).toMatch(/\/invite\//);
+  await member.getByRole('button', { name: 'סגירה' }).click();
+  await expect(member.getByRole('heading', { name: 'ההזמנות שלי' })).toBeVisible();
+  await expect(member.locator('.rows__row')).toHaveCount(1);
+  await expect(member.locator('.rows__row')).toContainText('הנין');
+  await shot(member, '15b-member-invite');
+  const guestCtx = await browser.newContext({ locale: 'he-IL' });
+  const guest = await guestCtx.newPage();
+  await guest.goto(memberInvite);
+  await guest.getByLabel('השם שיוצג לבני המשפחה').fill('נין');
+  await guest.getByLabel('דוא״ל').fill('guest@e2e.test');
+  await guest.getByLabel('סיסמה', { exact: true }).fill('guest-pass-1');
+  await guest.getByLabel('אימות סיסמה').fill('guest-pass-1');
+  await guest.getByRole('button', { name: 'הצטרפות' }).click();
+  await expect(guest).toHaveURL(/\/home$/);
+  const guestRole = ((await (await guest.request.get('/api/auth/status')).json()) as { user: { role: string } }).user.role;
+  expect(guestRole).toBe('member');
+  await guestCtx.close();
 
   // קבצים לא נגישים ללא התחברות
   const anon = await browser.newContext();

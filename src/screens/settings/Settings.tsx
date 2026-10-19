@@ -19,7 +19,7 @@ interface Section {
 
 const SECTIONS: Section[] = [
   { path: 'account', label: 'החשבון שלי', icon: 'user', el: () => <AccountSection /> },
-  { path: 'invites', label: 'הזמנת בני משפחה', icon: 'link', admin: true, el: () => <InvitesSection /> },
+  { path: 'invites', label: 'הזמנת בני משפחה', icon: 'link', el: () => <InvitesSection /> },
   { path: 'users', label: 'ניהול משתמשים', icon: 'users', admin: true, el: () => <UsersSection /> },
   { path: 'content', label: 'ניהול תכנים ומחיקה', icon: 'archive', admin: true, el: () => <ContentSection /> },
   { path: 'hero', label: 'התמונה הראשית', icon: 'image', admin: true, el: () => <HeroSection /> },

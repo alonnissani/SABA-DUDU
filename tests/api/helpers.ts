@@ -57,7 +57,7 @@ export async function setupAdmin(): Promise<Client> {
 }
 
 export async function inviteMember(admin: Client, email = 'member@family.test', name = 'בן משפחה'): Promise<Client> {
-  const inv = (await (await admin.post('/api/admin/invites', { role: 'member' })).json()) as { url: string };
+  const inv = (await (await admin.post('/api/invites', { role: 'member' })).json()) as { url: string };
   const token = inv.url.split('/invite/')[1];
   const member = new Client();
   const res = await member.post('/api/auth/accept-invite', { token, name, email, password: 'member-password-1' });
@@ -76,6 +76,8 @@ export async function upload(client: Client, kind: string, bytes: Uint8Array, na
 export async function createMedia(client: Client, kind: string, bytes: Uint8Array, name: string, mime: string, extra: Record<string, unknown> = {}) {
   // תמונות לגלריה כבר לא נוצרות דרך האתר — לבדיקות קבצים נוצרת ״תמונה ישנה״ ישירות ב-D1
   if (kind === 'photo') return legacyPhoto(client, bytes, name, mime, { title: typeof extra.title === 'string' ? extra.title : name });
+  // סרטונים כבר לא מועלים לאתר (רק קישור Drive) — ״סרטון ישן״ נוצר ישירות
+  if (kind === 'video') return legacyVideo(client, bytes, name, mime, { title: typeof extra.title === 'string' ? extra.title : name });
   const up = await upload(client, kind, bytes, name, mime);
   if (up.status !== 200) throw new Error(`upload failed ${up.status} ${await up.text()}`);
   const file = (await up.json()) as { id: string };
@@ -106,6 +108,28 @@ export async function legacyPhoto(client: Client, bytes: Uint8Array, name: strin
     ...fileIds.map((f) => env.DB.prepare('UPDATE files SET item_id = ? WHERE id = ?').bind(id, f)),
   ]);
   return { id, files: fileIds.map((f) => ({ id: f })) };
+}
+
+/** סרטון שהועלה לאתר לפני שהסרטונים עברו לקישורי Drive בלבד — קובץ ב-R2 ושורות ב-D1 */
+export async function legacyVideo(client: Client, bytes: Uint8Array, name: string, mime: string, extra: { title?: string } = {}) {
+  const { env } = await import('cloudflare:test');
+  const id = crypto.randomUUID();
+  const fileId = crypto.randomUUID();
+  const userId = await userIdOf(client);
+  const t = Date.now();
+  const key = `originals/video/legacy/${fileId}.mp4`;
+  await env.MEDIA.put(key, bytes, { httpMetadata: { contentType: mime } });
+  await env.DB.batch([
+    env.DB.prepare("INSERT INTO items (id, kind, title, created_by, created_at, updated_at) VALUES (?, 'video', ?, ?, ?, ?)").bind(id, extra.title ?? name, userId, t, t),
+    env.DB.prepare(
+      `INSERT INTO files (id, item_id, role, r2_key, mime, size, sha256, original_name, created_by, created_at)
+       VALUES (?, ?, 'original', ?, ?, ?, NULL, ?, ?, ?)`,
+    ).bind(fileId, id, key, mime, bytes.length, name, userId, t),
+    env.DB.prepare("INSERT INTO transcripts (item_id, status, updated_at) VALUES (?, 'none', ?)").bind(id, t),
+  ]);
+  const { reindexItem } = await import('../../worker/lib/search');
+  await reindexItem(env.DB, id);
+  return { id, files: [{ id: fileId }] };
 }
 
 let driveSeq = 0;

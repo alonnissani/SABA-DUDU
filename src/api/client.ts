@@ -133,6 +133,13 @@ export const api = {
   tags: () => get<TagInfo[]>('/tags'),
   attachable: (kind?: ItemKind) => get<ItemSummary[]>(`/attachable${qs({ kind })}`),
 
+  /** הזמנות — לכל משתמש מחובר (בן משפחה רואה ומבטל רק את שלו, ומזמין רק בני משפחה) */
+  invites: {
+    list: () => get<InviteInfo[]>('/invites'),
+    create: (b: { role?: string; email?: string; note?: string; days?: number }) => post<{ id: string; url: string; expiresAt: number }>('/invites', b),
+    revoke: (id: string) => del(`/invites/${id}`),
+  },
+
   admin: {
     drive: () => get<DriveStatus>('/admin/drive'),
     migration: () => get<CleanupReport>('/admin/drive/migration'),
@@ -148,10 +155,6 @@ export const api = {
     users: () => get<AdminUser[]>('/admin/users'),
     updateUser: (id: string, b: { role?: string; disabled?: boolean }) => patch(`/admin/users/${id}`, b),
     resetLink: (id: string) => post<{ url: string; expiresInDays: number }>(`/admin/users/${id}/reset-link`),
-    invites: () => get<InviteInfo[]>('/admin/invites'),
-    createInvite: (b: { role: string; email?: string; note?: string; days?: number }) =>
-      post<{ id: string; url: string; expiresAt: number }>('/admin/invites', b),
-    revokeInvite: (id: string) => del(`/admin/invites/${id}`),
     saveSettings: (b: { siteTitle?: string; subtitle?: string; heroTraits?: HeroTraits; homePhotos?: HomePhotoSetting[] }) => put('/admin/settings', b),
     setHero: (b: { fileId?: string; itemId?: string; clear?: boolean }) => put<{ heroFileId: string | null }>('/admin/hero', b),
     renameTag: (id: number, name: string) => patch(`/admin/tags/${id}`, { name }),

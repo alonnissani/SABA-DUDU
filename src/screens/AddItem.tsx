@@ -93,7 +93,7 @@ const STAGE_LABEL: Record<Pending['stage'], string> = {
   done: 'נשמר ✓',
 };
 
-function MediaForm({ kind, embedded }: { kind: MediaKind; embedded?: boolean }) {
+function MediaForm({ kind }: { kind: MediaKind }) {
   const navigate = useNavigate();
   const toast = useToast();
   const label = KIND_LABELS[kind];
@@ -168,23 +168,22 @@ function MediaForm({ kind, embedded }: { kind: MediaKind; embedded?: boolean }) 
   };
 
   const pending = files.filter((f) => f.stage !== 'done');
-  const multiple = kind !== 'video';
 
   return (
-    <div className={embedded ? undefined : 'add'}>
-      {!embedded && <PageHeader title={kind === 'photo' ? 'העלאת תמונות' : `העלאת ${label.singular}`} icon={KIND_ICON[kind]} />}
+    <div className="add">
+      <PageHeader title={kind === 'photo' ? 'העלאת תמונות' : `העלאת ${label.singular}`} icon={KIND_ICON[kind]} />
       <form className="form form--card" onSubmit={submit}>
         <div className="step">
           <span className="step__num">1</span>
           <div className="step__body">
-            <h2 className="step__title">בחירת {multiple ? 'קבצים' : 'קובץ'}</h2>
+            <h2 className="step__title">בחירת קבצים</h2>
             <label className={`dropzone ${busy ? 'is-disabled' : ''}`}>
-              <input ref={inputRef} type="file" accept={ACCEPT_ATTR[kind]} multiple={multiple} disabled={busy} onChange={(e) => addFiles(e.target.files)} />
+              <input ref={inputRef} type="file" accept={ACCEPT_ATTR[kind]} multiple disabled={busy} onChange={(e) => addFiles(e.target.files)} />
               <Icon name="upload" size={34} />
-              <span className="dropzone__title">{multiple ? `בחירת ${label.plural} מהמכשיר` : `בחירת ${label.singular} מהמכשיר`}</span>
+              <span className="dropzone__title">{`בחירת ${label.plural} מהמכשיר`}</span>
               <span className="dropzone__hint">
                 {kind === 'audio' ? `קובץ המקור יישמר כפי שהוא — ללא דחיסה וללא שינוי באיכות` : 'קובץ המקור נשמר באיכותו המלאה'}
-                {multiple ? ' · אפשר לבחור כמה יחד' : ''}
+                {' · אפשר לבחור כמה יחד'}
               </span>
             </label>
           </div>
@@ -262,30 +261,13 @@ function MediaForm({ kind, embedded }: { kind: MediaKind; embedded?: boolean }) 
   );
 }
 
-// ---------------- סרטון: העלאת קובץ או קישור ל-Google Drive ----------------
+// ---------------- סרטון: קישור ל-Google Drive בלבד (סרטונים לא מועלים לאתר) ----------------
 
 function VideoForm() {
-  const [source, setSource] = useState<'upload' | 'drive'>('upload');
   return (
     <div className="add">
       <PageHeader title="הוספת סרטון" icon="video" />
-      <div className="source-switch" role="radiogroup" aria-label="איך להוסיף את הסרטון?">
-        <button type="button" role="radio" aria-checked={source === 'upload'} className={`source-switch__opt ${source === 'upload' ? 'is-active' : ''}`} onClick={() => setSource('upload')}>
-          <Icon name="upload" />
-          <span>
-            <strong>העלאת קובץ מהמכשיר</strong>
-            <small>הסרטון נשמר באתר באיכות המקורית</small>
-          </span>
-        </button>
-        <button type="button" role="radio" aria-checked={source === 'drive'} className={`source-switch__opt ${source === 'drive' ? 'is-active' : ''}`} onClick={() => setSource('drive')}>
-          <Icon name="link" />
-          <span>
-            <strong>קישור ל-Google Drive</strong>
-            <small>לא תופס נפח אחסון באתר</small>
-          </span>
-        </button>
-      </div>
-      {source === 'upload' ? <MediaForm kind="video" embedded /> : <DriveForm />}
+      <DriveForm />
     </div>
   );
 }
@@ -383,7 +365,8 @@ function StoryForm() {
     if (!list) return;
     const add = [...list].map((file) => {
       const kind = kindForFile(file);
-      return { key: `${file.name}-${Math.random()}`, file, kind: (kind ?? 'photo') as MediaKind, progress: 0, error: kind ? precheck(kind, file) : 'סוג קובץ לא נתמך' };
+      const error = kind === 'video' ? 'סרטונים מוסיפים כקישור ל-Google Drive' : kind ? precheck(kind, file) : 'סוג קובץ לא נתמך';
+      return { key: `${file.name}-${Math.random()}`, file, kind: (kind ?? 'photo') as MediaKind, progress: 0, error };
     });
     setNewFiles((p) => [...p, ...add].slice(0, 10));
   };
@@ -455,14 +438,14 @@ function StoryForm() {
 
         <div className="field">
           <span className="field__label">תמונות לסיפור, הקלטות או סרטונים (לא חובה)</span>
-          <span className="field__hint">תמונות שמעלים כאן נשמרות עם הסיפור בלבד — הן לא מתווספות לגלריה.</span>
+          <span className="field__hint">תמונות שמעלים כאן נשמרות עם הסיפור בלבד — הן לא מתווספות לגלריה. סרטון מצרפים דרך ״בחירה מהארכיון״, אחרי שהוסף כקישור ל-Google Drive.</span>
           <div className="attach-actions">
             <button type="button" className="btn btn--ghost" onClick={() => setPicker(true)} disabled={busy}>
               <Icon name="link" />
               בחירה מהארכיון
             </button>
             <label className={`btn btn--ghost ${busy ? 'is-disabled' : ''}`}>
-              <input type="file" className="visually-hidden" multiple accept="image/*,audio/*,video/*,.heic,.m4a,.mp3,.wav" disabled={busy} onChange={(e) => { addNew(e.target.files); e.target.value = ''; }} />
+              <input type="file" className="visually-hidden" multiple accept="image/*,audio/*,.heic,.m4a,.mp3,.wav" disabled={busy} onChange={(e) => { addNew(e.target.files); e.target.value = ''; }} />
               <Icon name="upload" />
               העלאת קובץ חדש
             </label>
