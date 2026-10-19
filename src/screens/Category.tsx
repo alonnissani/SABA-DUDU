@@ -9,9 +9,10 @@ import { accessibleTitle } from '../lib/media';
 import { Icon, KIND_ICON } from '../components/Icon';
 import { AudioCard, DocumentCard, PhotoTile, StoryCard, VideoCard } from '../components/ItemCards';
 import { Lightbox } from '../components/Lightbox';
-import { VideoTheater, requestPageFullscreen } from '../components/VideoPlayer';
+import { VideoTheater } from '../components/VideoPlayer';
 
 const PAGE = 30;
+const RANDOM_KINDS: ItemKind[] = ['photo', 'video', 'story'];
 
 const EMPTY_TEXT: Record<ItemKind, { title: string; text: string; cta: string }> = {
   photo: { title: 'עדיין אין תמונות באלבום', text: 'העלו את התמונה הראשונה של סבא דודו — אפשר לבחור כמה תמונות יחד.', cta: 'העלאת תמונות' },
@@ -29,9 +30,9 @@ export function CategoryScreen() {
 
 function CategoryList({ kind }: { kind: ItemKind }) {
   const [params, setParams] = useSearchParams();
-  // בתמונות — סדר אקראי כברירת מחדל. ה-seed נקבע פעם אחת בכל כניסה ללשונית,
+  // בתמונות, בסרטונים ובסיפורים — סדר אקראי כברירת מחדל. ה-seed נקבע פעם אחת בכל כניסה ללשונית,
   // כך שבזמן גלילה הסדר יציב ובכניסה הבאה הוא מתערבב מחדש.
-  const defaultSort = kind === 'photo' ? 'random' : 'new';
+  const defaultSort = RANDOM_KINDS.includes(kind) ? 'random' : 'new';
   const sort = params.get('sort') ?? defaultSort;
   const [seed] = useState(() => 1 + Math.floor(Math.random() * 2_147_483_646));
   const tag = params.get('tag') ?? '';
@@ -49,12 +50,8 @@ function CategoryList({ kind }: { kind: ItemKind }) {
   const [confirmDelete, setConfirmDelete] = useState<ItemSummary | null>(null);
   const [theater, setTheater] = useState<ItemSummary | null>(null);
 
-  /** לחיצה על סרטון: מסך מלא כבר באירוע הלחיצה (דרישת הדפדפן), ואז הנגן ממלא אותו */
-  const playVideo = (it: ItemSummary) => {
-    const o = it.files.find((f) => f.role === 'original');
-    requestPageFullscreen(!o?.width || !o?.height || o.width >= o.height);
-    setTheater(it);
-  };
+  /** לחיצה על סרטון פותחת חלונית צפייה בתוך האתר — בלי מסך מלא או סיבוב כפויים */
+  const playVideo = (it: ItemSummary) => setTheater(it);
   const [deleting, setDeleting] = useState(false);
 
   /** מחיקה רכה (מנהל בלבד, נאכף בשרת) — הגלריה מתעדכנת מיד */
@@ -167,7 +164,7 @@ function CategoryList({ kind }: { kind: ItemKind }) {
           <label className="select">
             <span className="visually-hidden">מיון</span>
             <select value={sort} onChange={(e) => setParam('sort', e.target.value === defaultSort ? '' : e.target.value)}>
-              {kind === 'photo' && <option value="random">סדר אקראי</option>}
+              {RANDOM_KINDS.includes(kind) && <option value="random">סדר אקראי</option>}
               <option value="new">החדשים ביותר</option>
               <option value="old">הוותיקים ביותר (לפי העלאה)</option>
               <option value="year_asc">לפי שנה — מהמוקדם</option>

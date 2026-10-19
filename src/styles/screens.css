@@ -29,14 +29,20 @@
   min-width: 0;
   text-decoration: none;
 }
-.topbar__title {
-  font-family: var(--font-display);
-  font-weight: 700;
-  font-size: 1.45rem;
-  color: var(--brown-deep);
+.topbar__back {
+  font-size: 0.86rem;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  color: var(--brown);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+.topbar__brand:hover .topbar__back,
+.topbar__brand:focus-visible .topbar__back {
+  color: var(--brown-deep);
+  text-decoration: underline;
+  text-underline-offset: 3px;
 }
 .topbar__actions {
   display: flex;
@@ -335,6 +341,82 @@
 .frame__corner--tr { top: -8px; left: -8px; }
 .frame__corner--bl { bottom: -8px; right: -8px; }
 .frame__corner--br { bottom: -8px; left: -8px; }
+
+/* ---------- זיכרונות מרחפים סביב המסגרת ---------- */
+.orbit {
+  /* גודל בסיס לאלמנט; כל אלמנט מוכפל בגורם עומק משלו */
+  --m: clamp(40px, 13vw, 58px);
+  /* טווח הריחוף — מצומצם בטלפון כדי שאלמנט לא ייחתך בשולי המסך */
+  --amp: 0.7;
+  position: relative;
+  display: grid;
+  justify-items: center;
+  padding-bottom: calc(var(--m) * 0.5);
+}
+.orbit__layer {
+  position: absolute;
+  inset: 14px 0 calc(var(--m) * 0.5 + 6px);
+  pointer-events: none;
+  z-index: 3;
+}
+.mem {
+  position: absolute;
+  width: calc(var(--m) * var(--k, 1));
+  transform: translate(-50%, -50%);
+  animation: fade-in 1.6s ease both;
+}
+.mem__drift {
+  display: block;
+  animation: mem-drift var(--drift-dur, 24s) ease-in-out var(--drift-delay, 0s) infinite var(--drift-dir, normal);
+  will-change: transform;
+}
+.mem__img {
+  display: block;
+  width: 100%;
+  height: auto;
+  opacity: var(--o, 1);
+  filter: drop-shadow(0 4px 6px rgba(94, 67, 48, 0.22));
+  animation: mem-sway var(--sway-dur, 12s) ease-in-out var(--sway-delay, 0s) infinite alternate;
+  will-change: transform;
+  user-select: none;
+}
+/* מיקום סביב היקף המסגרת — חופף מעט את שולי המסגרת, אף פעם לא את התמונה */
+.mem--coffee { left: 1%; top: 11%; --k: 1; --o: 0.95; }
+.mem--pickles { left: 1%; top: 46%; --k: 1.05; }
+.mem--kiddush { left: 1.5%; top: 81%; --k: 0.9; --o: 0.9; }
+.mem--marhaba { left: 98%; top: 3%; --k: 1.1; --o: 0.92; }
+.mem--fish { left: 101.5%; top: 33%; --k: 1.1; }
+.mem--medic { left: 99%; top: 70%; --k: 1.05; --o: 0.95; }
+.mem--swimmer { left: 50%; top: 103.5%; --k: 2; }
+@media (min-width: 800px) {
+  .orbit { --m: 92px; --amp: 1.25; padding-bottom: calc(var(--m) * 0.8); }
+  .orbit__layer { bottom: calc(var(--m) * 0.8 + 6px); }
+  .mem--coffee { left: -26%; top: 14%; }
+  .mem--pickles { left: -36%; top: 50%; }
+  .mem--kiddush { left: -22%; top: 86%; }
+  .mem--marhaba { left: 128%; top: 8%; }
+  .mem--fish { left: 138%; top: 40%; }
+  .mem--medic { left: 124%; top: 80%; }
+  .mem--swimmer { top: 106%; --k: 1.9; }
+}
+@media (max-height: 640px) and (max-width: 799px) {
+  .orbit { --m: clamp(36px, 11vw, 50px); }
+}
+@keyframes mem-drift {
+  0%,
+  100% { transform: translate(0, 0); }
+  22% { transform: translate(calc(var(--dx) * var(--amp)), calc(var(--dy) * var(--amp) * -0.55)); }
+  48% { transform: translate(calc(var(--dx) * var(--amp) * 0.35), calc(var(--dy) * var(--amp) * -1)); }
+  73% { transform: translate(calc(var(--dx) * var(--amp) * -0.8), calc(var(--dy) * var(--amp) * -0.35)); }
+}
+@keyframes mem-sway {
+  from { transform: rotate(calc(var(--rot) * -1)) scale(0.98); }
+  to { transform: rotate(var(--rot)) scale(1.03); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .mem__drift,
+  .mem__img { animation: none; }
+}
 
 .landing__cta {
   margin-top: 16px;

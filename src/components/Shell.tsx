@@ -16,7 +16,6 @@ export function HeroAvatar({ size = 44 }: { size?: number }) {
 
 /** מסגרת האפליקציה: כותרת עליונה + חמש הלשוניות (תחתונות בטלפון, עליונות במחשב). */
 export function Shell() {
-  const { settings } = useApp();
   const loc = useLocation();
   useEffect(() => {
     window.scrollTo({ top: 0 });
@@ -29,9 +28,10 @@ export function Shell() {
       </a>
       <header className="topbar">
         <div className="topbar__inner">
-          <Link to="/home" className="topbar__brand" aria-label={`${settings.siteTitle} — מסך הבית`}>
+          {/* חזרה למסך הפתיחה המונפש — בלי התנתקות; ״כניסה לזיכרונות״ מחזיר לאתר */}
+          <Link to="/" className="topbar__brand" aria-label="חזרה לדף הכניסה">
             <HeroAvatar size={42} />
-            <span className="topbar__title">{settings.siteTitle}</span>
+            <span className="topbar__back">חזרה לדף הכניסה</span>
           </Link>
           <nav className="topbar__actions" aria-label="פעולות">
             <NavLink to="/search" className="icon-btn icon-btn--labeled">

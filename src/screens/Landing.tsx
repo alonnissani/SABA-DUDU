@@ -3,6 +3,7 @@ import { fileUrl } from '../api/client';
 import { useApp } from '../state';
 import { Ornament } from '../components/Common';
 import { HeroTraitsView } from '../components/HeroTraits';
+import { FloatingMemories } from '../components/FloatingMemories';
 
 /** מסך הפתיחה. התמונה והמאפיינים האישיים מוצגים רק לבני משפחה מחוברים — שום חומר משפחתי לא חשוף לציבור. */
 export function Landing() {
@@ -40,6 +41,7 @@ export function Landing() {
         <h1 className="landing__title">{settings.siteTitle}</h1>
         <Ornament />
 
+        <FloatingMemories>
         <figure className="frame">
           <span className="frame__corner frame__corner--tl" aria-hidden="true" />
           <span className="frame__corner frame__corner--tr" aria-hidden="true" />
@@ -58,6 +60,7 @@ export function Landing() {
             )}
           </div>
         </figure>
+        </FloatingMemories>
 
         {user && <HeroTraitsView traits={settings.heroTraits} />}
 

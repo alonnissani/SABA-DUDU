@@ -413,6 +413,30 @@ describe('סדר אקראי בגלריה', () => {
     const byNew = ((await (await admin.get('/api/items?kind=photo&limit=100')).json()) as { items: { id: string }[] }).items.map((x) => x.id);
     expect(byNew).toEqual([...ids].reverse());
   });
+
+  it('סרטונים (כולל Google Drive) וסיפורים — ערבוב מלא ויציב לפי seed', async () => {
+    const admin = await setupAdmin();
+    const ids: Record<'video' | 'story', string[]> = { video: [], story: [] };
+    for (let i = 0; i < 12; i++) ids.video.push((await createMedia(admin, 'video', MP4_HEAD, `v${i}.mp4`, 'video/mp4', { title: `ס${i}` })).id);
+    for (let i = 0; i < 12; i++) {
+      const url = `https://drive.google.com/file/d/1AbCdEfGhIjKlMnOpQrStUvWxYz0123${String(i).padStart(2, '0')}/view`;
+      ids.video.push(((await (await admin.post('/api/items', { kind: 'video', title: `דרייב ${i}`, externalUrl: url })).json()) as { id: string }).id);
+    }
+    for (let i = 0; i < 24; i++) ids.story.push(((await (await admin.post('/api/items', { kind: 'story', title: `סיפור ${i}`, body: 'תוכן', storyType: 'family' })).json()) as { id: string }).id);
+    for (const kind of ['video', 'story'] as const) {
+      const all = async (seed: number) => {
+        const out: string[] = [];
+        for (let off = 0; off < 24; off += 10)
+          out.push(...((await (await admin.get(`/api/items?kind=${kind}&sort=random&seed=${seed}&limit=10&offset=${off}`)).json()) as { items: { id: string }[] }).items.map((x) => x.id));
+        return out;
+      };
+      const a = await all(424242);
+      expect([...a].sort()).toEqual([...ids[kind]].sort());
+      expect(await all(424242)).toEqual(a);
+      expect(await all(1717)).not.toEqual(a);
+      expect(a).not.toEqual([...ids[kind]].reverse());
+    }
+  });
 });
 
 describe('תמונות ממוזערות לתמונות קיימות', () => {

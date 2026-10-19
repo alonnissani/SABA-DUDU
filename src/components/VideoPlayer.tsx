@@ -12,8 +12,8 @@ type FsVideo = HTMLVideoElement & { webkitEnterFullscreen?: () => void; webkitSu
 const fullscreenSupported = () =>
   Boolean(document.fullscreenEnabled || (document as Document & { webkitFullscreenEnabled?: boolean }).webkitFullscreenEnabled);
 
-/** כניסה למסך מלא, ובנייד — ניסיון לסובב לרוחב כשהסרטון רחב (נתמך באנדרואיד; באייפון הסיבוב טבעי) */
-export async function enterFullscreen(el: FsElement, landscape: boolean): Promise<boolean> {
+/** כניסה למסך מלא לפי בקשת המשתמש. אין נעילת כיוון — המסך מסתובב רק אם המשתמש מסובב את הטלפון. */
+export async function enterFullscreen(el: FsElement): Promise<boolean> {
   try {
     if (el.requestFullscreen) await el.requestFullscreen();
     else if (el.webkitRequestFullscreen) await el.webkitRequestFullscreen();
@@ -21,42 +21,19 @@ export async function enterFullscreen(el: FsElement, landscape: boolean): Promis
   } catch {
     return false;
   }
-  try {
-    const orientation = screen.orientation as ScreenOrientation & { lock?: (o: string) => Promise<void> };
-    if (landscape && orientation?.lock) await orientation.lock('landscape');
-  } catch {
-    /* הדפדפן לא מאפשר נעילת כיוון — בסדר */
-  }
   return true;
-}
-
-function useFullscreenExitUnlock() {
-  useEffect(() => {
-    const onChange = () => {
-      if (!document.fullscreenElement) {
-        try {
-          screen.orientation?.unlock?.();
-        } catch {
-          /* לא נתמך */
-        }
-      }
-    };
-    document.addEventListener('fullscreenchange', onChange);
-    return () => document.removeEventListener('fullscreenchange', onChange);
-  }, []);
 }
 
 /** סרטון שהועלה לאתר: מוצג בשלמותו ביחס המקורי, עם כפתור מסך מלא ברור. */
 export function UploadedVideo({ src, poster, width, height, duration }: { src: string; poster?: string; width: number | null; height: number | null; duration: number | null }) {
   const ref = useRef<FsVideo>(null);
   const [dims, setDims] = useState<{ w: number; h: number } | null>(width && height ? { w: width, h: height } : null);
-  useFullscreenExitUnlock();
   const shape = !dims ? 'unknown' : dims.h > dims.w ? 'portrait' : 'landscape';
 
   const fullscreen = async () => {
     const v = ref.current;
     if (!v) return;
-    const ok = await enterFullscreen(v, shape !== 'portrait');
+    const ok = await enterFullscreen(v);
     // אייפון: מסך מלא של נגן הווידאו המובנה (כולל סיבוב לרוחב)
     if (!ok) v.webkitEnterFullscreen?.();
   };
@@ -100,7 +77,6 @@ export function DriveVideo({ fileId, url, title }: { fileId: string; url: string
   const frame = useRef<HTMLDivElement>(null);
   const [ratio, setRatio] = useState<number | null>(null);
   const [canFs, setCanFs] = useState(false);
-  useFullscreenExitUnlock();
 
   useEffect(() => {
     setCanFs(fullscreenSupported());
@@ -118,7 +94,7 @@ export function DriveVideo({ fileId, url, title }: { fileId: string; url: string
 
   const portrait = ratio !== null && ratio < 1;
   const fullscreen = async () => {
-    const ok = frame.current && (await enterFullscreen(frame.current, !portrait));
+    const ok = frame.current && (await enterFullscreen(frame.current));
     // אם אין מסך מלא בתוך האתר (למשל אייפון) — פתיחה ישירה ב-Google Drive
     if (!ok) window.open(url, '_blank', 'noopener');
   };
@@ -154,22 +130,6 @@ export function DriveVideo({ fileId, url, title }: { fileId: string; url: string
   );
 }
 
-/**
- * כניסה למסך מלא מתוך לחיצה (חייב להיקרא ישירות באירוע הלחיצה, כדי שהדפדפן יאשר).
- * מכניס את כל הדף למסך מלא, והנגן (VideoTheater) ממלא אותו.
- */
-export function requestPageFullscreen(landscape: boolean): void {
-  const el = document.documentElement as FsElement;
-  const req = el.requestFullscreen?.bind(el) ?? el.webkitRequestFullscreen?.bind(el);
-  if (!req) return;
-  Promise.resolve(req())
-    .then(async () => {
-      const orientation = screen.orientation as ScreenOrientation & { lock?: (o: string) => Promise<void> };
-      if (landscape && orientation?.lock) await orientation.lock('landscape').catch(() => undefined);
-    })
-    .catch(() => undefined);
-}
-
 // יחס הגובה-רוחב של סרטוני Drive נלמד מהתמונה הממוזערת שלהם; נשמר בדפדפן כדי שבפעם הבאה הנגן ייפתח מיד בגודל הנכון
 const RATIO_KEY = 'saba:drive-ratio:';
 function readDriveRatio(id: string): number | null {
@@ -191,11 +151,10 @@ function writeDriveRatio(id: string, r: number) {
 const isFullscreen = () => Boolean(document.fullscreenElement || (document as Document & { webkitFullscreenElement?: Element }).webkitFullscreenElement);
 
 /**
- * נגן סרטון על כל המסך — נפתח בלחיצה על כרטיס סרטון. הסרטון מוצג בשלמותו ביחס המקורי.
- * אם הדפדפן לא אישר מסך מלא (למשל אייפון), זה ״נגן מוגדל״ עם כפתור מסך מלא ברור.
+ * חלונית צפייה בתוך האתר — נפתחת בלחיצה על כרטיס סרטון. אין מסך מלא כפוי ואין סיבוב כפוי:
+ * הסרטון מוצג בשלמותו ביחס המקורי (אנכי — לגובה, אופקי — לרוחב), ההפעלה והמסך המלא נעשים בנגן עצמו.
  */
 export function VideoTheater({ item, onClose }: { item: ItemSummary; onClose: () => void }) {
-  const videoRef = useRef<FsVideo>(null);
   const closeRef = useRef<HTMLButtonElement>(null);
   const original = item.files.find((f) => f.role === 'original');
   const poster = item.files.find((f) => f.role === 'poster' || f.role === 'thumb');
@@ -232,13 +191,8 @@ export function VideoTheater({ item, onClose }: { item: ItemSummary; onClose: ()
 
   const leaveFullscreen = () => {
     if (isFullscreen()) document.exitFullscreen?.().catch(() => undefined);
-    try {
-      screen.orientation?.unlock?.();
-    } catch {
-      /* לא נתמך */
-    }
   };
-  // ״חזרה״ בטלפון סוגרת את הנגן וחוזרת לארכיון (במקום לצאת מדף הגלריה)
+  // ״חזרה״ בטלפון סוגרת את החלונית וחוזרת לארכיון (במקום לצאת מדף הגלריה)
   const popped = useRef(false);
   useEffect(() => {
     history.pushState({ sabaTheater: true }, '');
@@ -257,28 +211,36 @@ export function VideoTheater({ item, onClose }: { item: ItemSummary; onClose: ()
     else onClose();
   };
 
-
   const r = ratio ?? 16 / 9;
   return (
     <div className="theater" role="dialog" aria-modal="true" aria-label={item.title || 'סרטון'}>
-      {/* כפתורים צפים קטנים — בלי סרגל, כדי שהסרטון ינצל את כל המסך */}
-      <div className="theater__float">
-        <button ref={closeRef} className="lb-btn" onClick={close} aria-label="סגירה וחזרה לארכיון">
-          <Icon name="close" />
+      <div className="theater__bar">
+        <button ref={closeRef} className="theater__btn" onClick={close}>
+          <Icon name="close" size={18} />
+          סגירה
         </button>
-        {ext && (
-          <a className="lb-btn" href={ext.url} target="_blank" rel="noopener noreferrer" aria-label="פתיחה ב-Google Drive">
-            <Icon name="link" />
-          </a>
-        )}
-        <Link className="lb-btn" to={`/item/${item.id}`} onClick={leaveFullscreen} aria-label="לדף הסרטון ותגובות">
-          <Icon name="comment" />
-        </Link>
+        <div className="theater__links">
+          {ext && (
+            <a className="theater__btn" href={ext.url} target="_blank" rel="noopener noreferrer">
+              <Icon name="link" size={18} />
+              פתיחה ב-Google Drive
+            </a>
+          )}
+          <Link className="theater__btn" to={`/item/${item.id}`} onClick={leaveFullscreen} aria-label="לדף הסרטון ותגובות">
+            <Icon name="comment" size={18} />
+            <span className="theater__btn-text">לדף הסרטון</span>
+          </Link>
+        </div>
       </div>
-      <div className="theater__stage">
-        {ext ? (
-          // אנכי — מנצל את הגובה; אופקי — את הרוחב; היחס נשמר
-          <div className="theater__frame" style={{ aspectRatio: String(r), width: `min(100vw, calc(var(--theater-h) * ${r}))` }}>
+      {/* לחיצה על הרקע סביב הנגן סוגרת */}
+      <div className="theater__stage" onClick={(e) => e.target === e.currentTarget && close()}>
+        {/* אנכי — מנצל את הגובה; אופקי — את הרוחב; היחס נשמר, בלי חיתוך ובלי מתיחה */}
+        <div
+          className="theater__frame"
+          data-ratio={r.toFixed(3)}
+          style={{ aspectRatio: String(r), width: `min(var(--theater-w), calc(var(--theater-h) * ${r}))` }}
+        >
+          {ext ? (
             <iframe
               src={drivePreviewUrl(ext.fileId)}
               title={item.title || 'סרטון מ-Google Drive'}
@@ -286,22 +248,21 @@ export function VideoTheater({ item, onClose }: { item: ItemSummary; onClose: ()
               allowFullScreen
               referrerPolicy="no-referrer"
             />
-          </div>
-        ) : original ? (
-          <video
-            ref={videoRef}
-            className="theater__video"
-            src={fileUrl(original.id)}
-            poster={poster ? fileUrl(poster.id) : undefined}
-            controls
-            autoPlay
-            playsInline
-            onLoadedMetadata={(e) => {
-              const v = e.currentTarget;
-              if (v.videoWidth && v.videoHeight) setRatio(v.videoWidth / v.videoHeight);
-            }}
-          />
-        ) : null}
+          ) : original ? (
+            <video
+              className="theater__video"
+              src={fileUrl(original.id)}
+              poster={poster ? fileUrl(poster.id) : undefined}
+              controls
+              autoPlay
+              playsInline
+              onLoadedMetadata={(e) => {
+                const v = e.currentTarget;
+                if (v.videoWidth && v.videoHeight) setRatio(v.videoWidth / v.videoHeight);
+              }}
+            />
+          ) : null}
+        </div>
       </div>
     </div>
   );
