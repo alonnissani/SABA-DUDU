@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import { Link } from 'react-router';
 import type { ItemSummary } from '../../shared/types';
 import { KIND_LABELS, STORY_TYPE_LABEL } from '../../shared/constants';
@@ -40,8 +41,9 @@ export function TagList({ tags }: { tags: string[] }) {
 }
 
 /** תמונה בגלריה — בסגנון תמונה מודבקת באלבום. */
-export function PhotoTile({ item, onOpen }: { item: ItemSummary; onOpen: () => void }) {
+export function PhotoTile({ item, onOpen, priority }: { item: ItemSummary; onOpen: () => void; priority?: boolean }) {
   const src = previewUrl(item);
+  const [loaded, setLoaded] = useState(false);
   const o = originalOf(item);
   const ratio = o?.width && o?.height ? `${o.width} / ${o.height}` : '4 / 3';
   const title = displayTitle(item);
@@ -49,8 +51,20 @@ export function PhotoTile({ item, onOpen }: { item: ItemSummary; onOpen: () => v
   return (
     <figure className="photo-tile">
       <button className="photo-tile__btn" onClick={onOpen} aria-label={title ? `פתיחת התמונה: ${title}` : 'פתיחת התמונה'}>
-        <span className="photo-tile__img" style={{ aspectRatio: ratio }}>
-          {src ? <img src={src} alt="" loading="lazy" decoding="async" /> : <span className="photo-tile__noprev"><Icon name="photo" size={32} />{o?.mime.split('/')[1]?.toUpperCase()}</span>}
+        <span className={`photo-tile__img ${loaded || !src ? 'is-loaded' : ''}`} style={{ aspectRatio: ratio }}>
+          {src ? (
+            <img
+              src={src}
+              alt=""
+              loading={priority ? 'eager' : 'lazy'}
+              fetchPriority={priority ? 'high' : 'auto'}
+              decoding="async"
+              onLoad={() => setLoaded(true)}
+              onError={() => setLoaded(true)}
+            />
+          ) : (
+            <span className="photo-tile__noprev"><Icon name="photo" size={32} />{o?.mime.split('/')[1]?.toUpperCase()}</span>
+          )}
         </span>
       </button>
       {(title || date) && (

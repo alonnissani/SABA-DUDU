@@ -6,7 +6,7 @@ import { AccountSection } from './Account';
 import { UsersSection, InvitesSection } from './People';
 import { ContentSection, TagsSection, ActivitySection } from './Content';
 import { HeroSection, SiteSection } from './Site';
-import { BackupsSection, ExportSection } from './Data';
+import { BackupsSection, ExportSection, ThumbsSection } from './Data';
 
 interface Section {
   path: string;
@@ -23,6 +23,7 @@ const SECTIONS: Section[] = [
   { path: 'content', label: 'ניהול תכנים ומחיקה', icon: 'archive', admin: true, el: () => <ContentSection /> },
   { path: 'hero', label: 'התמונה הראשית', icon: 'image', admin: true, el: () => <HeroSection /> },
   { path: 'site', label: 'שם האתר ומסך הפתיחה', icon: 'edit', admin: true, el: () => <SiteSection /> },
+  { path: 'thumbs', label: 'מהירות הגלריה', icon: 'photo', admin: true, el: () => <ThumbsSection /> },
   { path: 'tags', label: 'תגיות', icon: 'tag', admin: true, el: () => <TagsSection /> },
   { path: 'export', label: 'ייצוא הארכיון', icon: 'download', admin: true, el: () => <ExportSection /> },
   { path: 'backups', label: 'מצב גיבויים', icon: 'shield', admin: true, el: () => <BackupsSection /> },

@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { formatBytes } from '../../../shared/constants';
-import { api } from '../../api/client';
+import { api, fileUrl, uploadFile } from '../../api/client';
+import { imageMeta } from '../../lib/media';
 import { useLoad, useToast } from '../../state';
 import { ErrorBox, ProgressBar, Spinner } from '../../components/Common';
 import { Icon } from '../../components/Icon';
@@ -122,6 +123,87 @@ export function BackupsSection() {
           </ul>
         </div>
       )}
+    </div>
+  );
+}
+
+/**
+ * יצירת תמונות ממוזערות לתמונות שהועלו בלעדיהן (למשל תמונות ישנות או HEIC).
+ * הממוזערת נוצרת בדפדפן של המנהל ונשמרת כקובץ נוסף — קובץ המקור לא משתנה ולא נמחק.
+ */
+export function ThumbsSection() {
+  const toast = useToast();
+  const missing = useLoad(() => api.admin.missingThumbs(), []);
+  const [progress, setProgress] = useState<{ done: number; total: number; ok: number; failed: number } | null>(null);
+  const running = progress !== null && progress.done < progress.total;
+
+  const run = async () => {
+    const list = missing.data ?? [];
+    const state = { done: 0, total: list.length, ok: 0, failed: 0 };
+    setProgress({ ...state });
+    let next = 0;
+    const worker = async () => {
+      while (next < list.length) {
+        const m = list[next++];
+        try {
+          const res = await fetch(fileUrl(m.fileId), { credentials: 'same-origin' });
+          if (!res.ok) throw new Error();
+          const meta = await imageMeta(await res.blob());
+          if (!meta.preview) throw new Error();
+          const thumb = await uploadFile(meta.preview, {
+            kind: 'photo', role: 'thumb', name: `preview.${meta.preview.type === 'image/webp' ? 'webp' : 'jpg'}`, mime: meta.preview.type,
+          });
+          await api.admin.attachThumb(m.itemId, { fileId: thumb.id, width: meta.width, height: meta.height });
+          state.ok++;
+        } catch {
+          state.failed++;
+        }
+        state.done++;
+        setProgress({ ...state });
+      }
+    };
+    await Promise.all([worker(), worker()]);
+    toast(state.failed ? `נוצרו ${state.ok} תמונות ממוזערות. ${state.failed} לא נוצרו — ראו הסבר למטה.` : `נוצרו ${state.ok} תמונות ממוזערות`);
+    missing.reload();
+  };
+
+  return (
+    <div className="stack">
+      <div className="panel">
+        <h2 className="panel__title">תמונות ממוזערות</h2>
+        <p className="muted">
+          הגלריה טוענת גרסה קטנה וקלה של כל תמונה (WebP), והמקור באיכות מלאה נטען רק כשפותחים תמונה. לתמונות חדשות זה קורה אוטומטית בהעלאה.
+          כאן אפשר ליצור גרסה קטנה לתמונות שעדיין אין להן. התמונות המקוריות לא משתנות ולא נמחקות.
+        </p>
+        {missing.loading ? (
+          <Spinner />
+        ) : missing.error ? (
+          <ErrorBox message={missing.error} onRetry={missing.reload} />
+        ) : (
+          <>
+            <p className="small">
+              {missing.data!.length ? `${missing.data!.length} תמונות עדיין בלי גרסה מוקטנת.` : 'לכל התמונות כבר יש גרסה מוקטנת ✓'}
+            </p>
+            {progress && (
+              <>
+                <ProgressBar value={progress.total ? progress.done / progress.total : 1} label="יצירת תמונות ממוזערות" />
+                <p className="small">
+                  {progress.done} / {progress.total} · נוצרו {progress.ok}
+                  {progress.failed ? ` · לא נוצרו ${progress.failed}` : ''}
+                </p>
+              </>
+            )}
+            {missing.data!.length > 0 && (
+              <button className="btn btn--primary" onClick={run} disabled={running}>
+                {running ? 'יוצר…' : 'יצירת תמונות ממוזערות עכשיו'}
+              </button>
+            )}
+            <p className="muted small">
+              התהליך רץ בדפדפן הזה — יש להשאיר את הדף פתוח עד הסיום. תמונות HEIC (מאייפון) ניתנות להמרה רק מספארי; אם חלק לא נוצרו, נסו שוב מאייפון או ממק.
+            </p>
+          </>
+        )}
+      </div>
     </div>
   );
 }

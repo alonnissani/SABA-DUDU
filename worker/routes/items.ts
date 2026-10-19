@@ -11,6 +11,7 @@ import {
 } from '../lib/items';
 import { reindexItem } from '../lib/search';
 import { getSetting } from '../lib/settings';
+import { fileCache } from './files';
 
 export const itemRoutes = new Hono<AppEnv>();
 
@@ -35,6 +36,18 @@ const SORTS: Record<string, string> = {
   year_desc: 'i.date_year IS NULL, i.date_year DESC, i.created_at DESC',
   title: 'i.title COLLATE NOCASE ASC',
 };
+
+/**
+ * סדר ״אקראי״ יציב לפי seed: גיבוב של rowid של הפריט עם ה-seed.
+ * אותו seed ← אותו סדר בכל העמודים (בלי כפילויות או חוסרים בגלילה); seed חדש ← סדר חדש.
+ * הסדר במסד הנתונים לא משתנה. SQLite חסר XOR, ולכן a XOR b = (a | b) - (a & b).
+ */
+function randomOrder(seed: number): string {
+  const xor = (a: string, b: string) => `((${a}) | (${b})) - ((${a}) & (${b}))`;
+  const h1 = `((${xor('i.rowid', String(seed))}) * 2654435761) % 4294967296`;
+  const h2 = `((${xor(h1, `(${h1}) >> 13`)}) * 1274126177) % 4294967296`;
+  return `${h2}, i.id`;
+}
 
 /** רשימת פריטים עם מיון וסינון. מנהל יכול לבקש deleted=1 כדי לראות את סל המחזור. */
 itemRoutes.get('/items', async (c) => {
@@ -68,7 +81,12 @@ itemRoutes.get('/items', async (c) => {
     where.push('i.story_type = ?');
     binds.push(parseStoryType(storyType));
   }
-  const order = trash ? 'i.deleted_at DESC' : (SORTS[c.req.query('sort') ?? 'new'] ?? SORTS.new);
+  const sort = c.req.query('sort') ?? 'new';
+  const order = trash
+    ? 'i.deleted_at DESC'
+    : sort === 'random'
+      ? randomOrder(intOrNull(c.req.query('seed'), 'seed', 1, 2_147_483_647) ?? 1)
+      : (SORTS[sort] ?? SORTS.new);
   const limit = intOrNull(c.req.query('limit'), 'limit', 1, 100) ?? 40;
   const offset = intOrNull(c.req.query('offset'), 'offset', 0, 1_000_000) ?? 0;
   const whereSql = where.join(' AND ');
@@ -272,6 +290,7 @@ itemRoutes.delete('/items/:id', async (c) => {
     .bind(now(), admin.id, c.req.param('id'))
     .run();
   if (!res.meta.changes) fail(404, 'הפריט לא נמצא');
+  fileCache.clear();
   await audit(c.env.DB, admin.id, 'item.delete', 'item', c.req.param('id'));
   return c.json({ ok: true });
 });
@@ -282,6 +301,7 @@ itemRoutes.post('/items/:id/restore', async (c) => {
     .bind(c.req.param('id'))
     .run();
   if (!res.meta.changes) fail(404, 'הפריט לא נמצא בסל המחזור');
+  fileCache.clear();
   await audit(c.env.DB, admin.id, 'item.restore', 'item', c.req.param('id'));
   return c.json({ ok: true });
 });

@@ -386,3 +386,54 @@ describe('כותרות תמונות', () => {
     expect((await admin.post('/api/items', { kind: 'story', body: 'x', storyType: 'family' })).status).toBe(400);
   });
 });
+
+describe('סדר אקראי בגלריה', () => {
+  it('אותו seed — סדר יציב בין עמודים בלי כפילויות או חוסרים; seed אחר — סדר אחר', async () => {
+    const admin = await setupAdmin();
+    const ids: string[] = [];
+    for (let i = 0; i < 45; i++) ids.push((await createMedia(admin, 'photo', PNG, `p${i}.png`, 'image/png', { title: `ת${i}` })).id);
+    const page = async (seed: number, offset: number) =>
+      ((await (await admin.get(`/api/items?kind=photo&sort=random&seed=${seed}&limit=20&offset=${offset}`)).json()) as { items: { id: string }[]; total: number });
+    const all = async (seed: number) => {
+      const out: string[] = [];
+      for (let off = 0; off < 45; off += 20) out.push(...(await page(seed, off)).items.map((x) => x.id));
+      return out;
+    };
+    const a = await all(12345);
+    expect(a).toHaveLength(45);
+    expect(new Set(a).size).toBe(45);
+    expect([...a].sort()).toEqual([...ids].sort());
+    expect(await all(12345)).toEqual(a); // יציב
+    const b = await all(987654);
+    expect(b).not.toEqual(a);
+    // לא סתם סדר ההוספה או הפוכו
+    expect(a).not.toEqual(ids);
+    expect(a).not.toEqual([...ids].reverse());
+    // הסדר השמור לא השתנה
+    const byNew = ((await (await admin.get('/api/items?kind=photo&limit=100')).json()) as { items: { id: string }[] }).items.map((x) => x.id);
+    expect(byNew).toEqual([...ids].reverse());
+  });
+});
+
+describe('תמונות ממוזערות לתמונות קיימות', () => {
+  it('מנהל רואה תמונות ללא ממוזערת ומצרף אחת; משתמש רגיל לא יכול', async () => {
+    const admin = await setupAdmin();
+    const member = await inviteMember(admin);
+    const item = await createMedia(member, 'photo', PNG, 'old.png', 'image/png');
+    const missing = (await (await admin.get('/api/admin/thumbs/missing')).json()) as { itemId: string }[];
+    expect(missing.map((m) => m.itemId)).toEqual([item.id]);
+    expect((await member.get('/api/admin/thumbs/missing')).status).toBe(403);
+
+    const thumb = (await (await upload(admin, 'photo', PNG, 'preview.png', 'image/png', 'thumb')).json()) as { id: string };
+    expect((await member.post(`/api/admin/items/${item.id}/thumb`, { fileId: thumb.id })).status).toBe(403);
+    expect((await admin.post(`/api/admin/items/${item.id}/thumb`, { fileId: thumb.id, width: 1200, height: 800 })).status).toBe(200);
+
+    const detail = (await (await admin.get(`/api/items/${item.id}`)).json()) as { files: { id: string; role: string; width: number }[] };
+    expect(detail.files.map((f) => f.role).sort()).toEqual(['original', 'thumb']);
+    expect(detail.files.find((f) => f.role === 'original')!.width).toBe(1200);
+    // המקור לא השתנה
+    const orig = detail.files.find((f) => f.role === 'original')!;
+    expect(new Uint8Array(await (await admin.get(`/api/files/${orig.id}`)).arrayBuffer())).toEqual(PNG);
+    expect(((await (await admin.get('/api/admin/thumbs/missing')).json()) as unknown[]).length).toBe(0);
+  });
+});

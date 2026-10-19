@@ -48,6 +48,8 @@ export const fileUrl = (id: string, download = false) => `/api/files/${id}${down
 export interface ListParams {
   kind?: ItemKind;
   sort?: string;
+  /** seed לסדר אקראי יציב */
+  seed?: number;
   tag?: string;
   year?: number;
   decade?: number;
@@ -115,6 +117,8 @@ export const api = {
     stats: () => get<ArchiveStats>('/admin/stats'),
     backups: () => get<BackupStatus>('/admin/backups'),
     runBackup: () => post<{ status: string; message: string }>('/admin/backups/run'),
+    missingThumbs: () => get<{ itemId: string; fileId: string; mime: string; size: number; name: string }[]>('/admin/thumbs/missing'),
+    attachThumb: (itemId: string, b: { fileId: string; width?: number; height?: number }) => post(`/admin/items/${itemId}/thumb`, b),
     audit: () => get<{ id: number; action: string; target_type: string; target_id: string; created_at: number; user_name: string }[]>('/admin/audit'),
   },
 };

@@ -128,6 +128,7 @@ function MemoryPreview({ item }: { item: ItemSummary }) {
       <Icon name={KIND_ICON[item.kind]} size={44} />
     </span>
   );
+  if (item.externalVideo && src) return <ExternalThumb src={src} fallback={iconBox} />;
   if (src) {
     // התמונה מוצגת במלואה (contain), ביחס הגובה-רוחב המקורי שלה
     return (
@@ -152,6 +153,30 @@ function MemoryPreview({ item }: { item: ItemSummary }) {
           ))}
         </span>
       )}
+    </span>
+  );
+}
+
+/** תמונה ממוזערת של סרטון מ-Google Drive: האייקון מוצג עד שהתמונה באמת נטענה (או אם אינה זמינה) */
+function ExternalThumb({ src, fallback }: { src: string; fallback: React.ReactNode }) {
+  const [ok, setOk] = useState(false);
+  useEffect(() => {
+    setOk(false);
+    const img = new Image();
+    img.referrerPolicy = 'no-referrer';
+    img.onload = () => setOk(true);
+    img.src = src;
+    return () => {
+      img.onload = null;
+    };
+  }, [src]);
+  if (!ok) return <>{fallback}</>;
+  return (
+    <span className="memory__media memory__media--video memory__media--fit">
+      <img src={src} alt="" referrerPolicy="no-referrer" />
+      <span className="memory__play" aria-hidden="true">
+        <Icon name="play" size={28} />
+      </span>
     </span>
   );
 }

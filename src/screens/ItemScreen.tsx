@@ -1,4 +1,4 @@
-import { useRef, useState, type FormEvent } from 'react';
+import { useState, type FormEvent } from 'react';
 import { Link, useNavigate, useParams } from 'react-router';
 import type { ItemDetail, StoryType } from '../../shared/types';
 import { KIND_LABELS, STORY_TYPES, STORY_TYPE_LABEL, formatBytes } from '../../shared/constants';
@@ -10,8 +10,9 @@ import { AudioPlayer } from '../components/AudioPlayer';
 import { ItemMeta, ItemRowCard, TagList } from '../components/ItemCards';
 import { Lightbox } from '../components/Lightbox';
 import { MetaFields, metaPayload, type MetaValues } from '../components/MetaFields';
-import { accessibleTitle, displayTitle, displayableImage, formatDate, formatDuration, originalOf, previewOf, previewUrl } from '../lib/media';
-import { drivePreviewUrl, parseDriveFileId } from '../../shared/drive';
+import { accessibleTitle, displayTitle, displayableImage, formatDate, originalOf, previewOf, previewUrl } from '../lib/media';
+import { parseDriveFileId } from '../../shared/drive';
+import { DriveVideo, UploadedVideo } from '../components/VideoPlayer';
 
 export function ItemScreen() {
   const { id = '' } = useParams();
@@ -171,7 +172,6 @@ function ItemView({ item, reload, onChange }: { item: ItemDetail; reload: () => 
 
 function MediaView({ item }: { item: ItemDetail }) {
   const [zoom, setZoom] = useState(false);
-  const videoRef = useRef<HTMLVideoElement>(null);
   const original = originalOf(item);
   const poster = previewOf(item);
   if (item.externalVideo) return <DriveVideo fileId={item.externalVideo.fileId} url={item.externalVideo.url} title={item.title} />;
@@ -199,25 +199,14 @@ function MediaView({ item }: { item: ItemDetail }) {
   }
 
   if (item.kind === 'video') {
-    const fullscreen = () => {
-      const v = videoRef.current as (HTMLVideoElement & { webkitEnterFullscreen?: () => void }) | null;
-      if (!v) return;
-      if (v.requestFullscreen) v.requestFullscreen().catch(() => v.webkitEnterFullscreen?.());
-      else v.webkitEnterFullscreen?.();
-    };
     return (
-      <div className="video-wrap">
-        <video ref={videoRef} className="video" src={fileUrl(original.id)} poster={poster ? fileUrl(poster.id) : undefined} controls playsInline preload="metadata">
-          הדפדפן אינו תומך בניגון וידאו.
-        </video>
-        <div className="video-wrap__bar">
-          {original.duration ? <span className="meta__muted">אורך: {formatDuration(original.duration)}</span> : <span />}
-          <button className="btn btn--ghost btn--sm" onClick={fullscreen}>
-            <Icon name="fullscreen" size={18} />
-            מסך מלא
-          </button>
-        </div>
-      </div>
+      <UploadedVideo
+        src={fileUrl(original.id)}
+        poster={poster ? fileUrl(poster.id) : undefined}
+        width={original.width}
+        height={original.height}
+        duration={original.duration}
+      />
     );
   }
 
@@ -237,35 +226,6 @@ function MediaView({ item }: { item: ItemDetail }) {
         <Icon name="fullscreen" size={18} />
         פתיחה במסך מלא
       </a>
-    </div>
-  );
-}
-
-/**
- * סרטון מ-Google Drive בנגן מוטמע. הניגון תלוי בהרשאות השיתוף בדרייב, ולכן תמיד מוצג גם קישור לפתיחה ישירה.
- */
-function DriveVideo({ fileId, url, title }: { fileId: string; url: string; title: string }) {
-  return (
-    <div className="video-wrap">
-      <div className="drive-frame">
-        <iframe
-          src={drivePreviewUrl(fileId)}
-          title={title || 'סרטון מ-Google Drive'}
-          allow="autoplay; fullscreen; encrypted-media; picture-in-picture"
-          allowFullScreen
-          loading="lazy"
-          referrerPolicy="no-referrer"
-        />
-      </div>
-      <div className="video-wrap__bar">
-        <span className="meta__muted small">
-          הסרטון מוצג מ-Google Drive. אם הוא לא מתנגן, ייתכן שהרשאות השיתוף שלו מוגבלות.
-        </span>
-        <a className="btn btn--ghost btn--sm" href={url} target="_blank" rel="noopener noreferrer">
-          <Icon name="link" size={18} />
-          פתיחה ב-Google Drive
-        </a>
-      </div>
     </div>
   );
 }

@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Link, Navigate, useParams, useSearchParams } from 'react-router';
 import type { ItemKind, ItemSummary } from '../../shared/types';
 import { ITEM_KINDS, KIND_LABELS, STORY_TYPES } from '../../shared/constants';
@@ -27,7 +27,11 @@ export function CategoryScreen() {
 
 function CategoryList({ kind }: { kind: ItemKind }) {
   const [params, setParams] = useSearchParams();
-  const sort = params.get('sort') ?? 'new';
+  // בתמונות — סדר אקראי כברירת מחדל. ה-seed נקבע פעם אחת בכל כניסה ללשונית,
+  // כך שבזמן גלילה הסדר יציב ובכניסה הבאה הוא מתערבב מחדש.
+  const defaultSort = kind === 'photo' ? 'random' : 'new';
+  const sort = params.get('sort') ?? defaultSort;
+  const [seed] = useState(() => 1 + Math.floor(Math.random() * 2_147_483_646));
   const tag = params.get('tag') ?? '';
   const decade = params.get('decade') ?? '';
   const storyType = params.get('type') ?? '';
@@ -39,13 +43,17 @@ function CategoryList({ kind }: { kind: ItemKind }) {
   const [open, setOpen] = useState<number | null>(null);
   const facets = useLoad(() => api.facets(kind), [kind]);
 
-  const query = { kind, sort, tag: tag || undefined, decade: decade ? Number(decade) : undefined, storyType: storyType || undefined, limit: PAGE };
+  const fetched = useRef(0);
+  const busyMore = useRef(false);
+  const sentinel = useRef<HTMLDivElement>(null);
+  const query = { kind, sort, seed: sort === 'random' ? seed : undefined, tag: tag || undefined, decade: decade ? Number(decade) : undefined, storyType: storyType || undefined, limit: PAGE };
 
   const load = async () => {
     setLoading(true);
     setError(null);
     try {
       const res = await api.list({ ...query, offset: 0 });
+      fetched.current = res.items.length;
       setItems(res.items);
       setTotal(res.total);
     } catch (e) {
@@ -61,17 +69,36 @@ function CategoryList({ kind }: { kind: ItemKind }) {
   }, [kind, sort, tag, decade, storyType]);
 
   const more = async () => {
+    if (busyMore.current) return;
+    busyMore.current = true;
     setLoadingMore(true);
     try {
-      const res = await api.list({ ...query, offset: items.length });
-      setItems((prev) => [...prev, ...res.items]);
+      const res = await api.list({ ...query, offset: fetched.current });
+      fetched.current += res.items.length;
+      // הגנה מכפילויות אם נוסף פריט בזמן הגלילה
+      setItems((prev) => {
+        const seen = new Set(prev.map((i) => i.id));
+        return [...prev, ...res.items.filter((i) => !seen.has(i.id))];
+      });
       setTotal(res.total);
     } catch (e) {
       setError((e as Error).message);
     } finally {
+      busyMore.current = false;
       setLoadingMore(false);
     }
   };
+
+  // טעינה הדרגתית: כשמתקרבים לסוף הרשימה, העמוד הבא נטען אוטומטית
+  const hasMore = !loading && fetched.current < total;
+  useEffect(() => {
+    const el = sentinel.current;
+    if (!el || !hasMore) return;
+    const io = new IntersectionObserver((entries) => entries.some((e) => e.isIntersecting) && more(), { rootMargin: '900px 0px' });
+    io.observe(el);
+    return () => io.disconnect();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [hasMore, items.length]);
 
   const setParam = (key: string, value: string) => {
     const next = new URLSearchParams(params);
@@ -103,7 +130,8 @@ function CategoryList({ kind }: { kind: ItemKind }) {
         <div className="filters" role="group" aria-label="מיון וסינון">
           <label className="select">
             <span className="visually-hidden">מיון</span>
-            <select value={sort} onChange={(e) => setParam('sort', e.target.value === 'new' ? '' : e.target.value)}>
+            <select value={sort} onChange={(e) => setParam('sort', e.target.value === defaultSort ? '' : e.target.value)}>
+              {kind === 'photo' && <option value="random">סדר אקראי</option>}
               <option value="new">החדשים ביותר</option>
               <option value="old">הוותיקים ביותר (לפי העלאה)</option>
               <option value="year_asc">לפי שנה — מהמוקדם</option>
@@ -151,7 +179,7 @@ function CategoryList({ kind }: { kind: ItemKind }) {
             </label>
           )}
           {filtered && (
-            <button className="btn btn--text" onClick={() => setParams(sort !== 'new' ? { sort } : {}, { replace: true })}>
+            <button className="btn btn--text" onClick={() => setParams(sort !== defaultSort ? { sort } : {}, { replace: true })}>
               ניקוי סינון
             </button>
           )}
@@ -182,7 +210,7 @@ function CategoryList({ kind }: { kind: ItemKind }) {
           {kind === 'photo' && (
             <div className="gallery">
               {items.map((it, i) => (
-                <PhotoTile key={it.id} item={it} onOpen={() => setOpen(i)} />
+                <PhotoTile key={it.id} item={it} onOpen={() => setOpen(i)} priority={i < 6} />
               ))}
             </div>
           )}
@@ -190,10 +218,10 @@ function CategoryList({ kind }: { kind: ItemKind }) {
           {kind === 'audio' && <div className="list">{items.map((it) => <AudioCard key={it.id} item={it} />)}</div>}
           {kind === 'story' && <div className="grid grid--stories">{items.map((it) => <StoryCard key={it.id} item={it} />)}</div>}
           {kind === 'document' && <div className="grid grid--docs">{items.map((it) => <DocumentCard key={it.id} item={it} />)}</div>}
-          {items.length < total && (
-            <div className="load-more">
+          {hasMore && (
+            <div className="load-more" ref={sentinel}>
               <button className="btn btn--ghost" onClick={more} disabled={loadingMore}>
-                {loadingMore ? 'טוען…' : `הצגת עוד (${total - items.length})`}
+                {loadingMore ? 'טוען…' : `הצגת עוד (${total - fetched.current})`}
               </button>
             </div>
           )}
@@ -206,7 +234,7 @@ function CategoryList({ kind }: { kind: ItemKind }) {
           index={open}
           onIndex={(i) => {
             setOpen(i);
-            if (i >= items.length - 3 && items.length < total && !loadingMore) more();
+            if (i >= items.length - 3 && fetched.current < total) more();
           }}
           onClose={() => setOpen(null)}
         />

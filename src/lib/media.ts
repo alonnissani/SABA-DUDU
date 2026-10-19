@@ -25,8 +25,11 @@ export function displayableImage(f: FileInfo | undefined): boolean {
   return !!f && (WEB_IMAGES.includes(f.mime) || f.mime === 'image/heic' || f.mime === 'image/heif' || f.mime === 'image/tiff');
 }
 
+/** רוחב/גובה מקסימלי לתמונה ממוזערת — חד בגלריה ובכרטיס הזיכרון, וקל לטעינה בנייד */
+export const THUMB_SIZE = 800;
+
 async function canvasToBlob(canvas: HTMLCanvasElement): Promise<Blob | null> {
-  const webp = await new Promise<Blob | null>((r) => canvas.toBlob(r, 'image/webp', 0.82));
+  const webp = await new Promise<Blob | null>((r) => canvas.toBlob(r, 'image/webp', 0.8));
   if (webp && webp.type === 'image/webp') return webp;
   return new Promise((r) => canvas.toBlob(r, 'image/jpeg', 0.85));
 }
@@ -53,16 +56,38 @@ export interface MediaMeta {
  * מחלץ מידות ויוצר תמונה ממוזערת בדפדפן. קובץ המקור עצמו לא משתנה.
  * אם הדפדפן לא מצליח לפענח (למשל HEIC בכרום) — פשוט אין ממוזערת.
  */
-export async function imageMeta(file: File): Promise<MediaMeta> {
+export async function imageMeta(file: Blob): Promise<MediaMeta> {
   try {
     const bmp = await createImageBitmap(file, { imageOrientation: 'from-image' } as ImageBitmapOptions);
-    const canvas = drawScaled(bmp, bmp.width, bmp.height, 900);
+    const canvas = drawScaled(bmp, bmp.width, bmp.height, THUMB_SIZE);
     const meta = { width: bmp.width, height: bmp.height, preview: await canvasToBlob(canvas) };
     bmp.close();
     return meta;
   } catch {
-    return {};
+    // חלופה: פענוח דרך <img> — למשל HEIC בספארי, שמציג אותו אך לא תמיד דרך createImageBitmap
+    return imageMetaViaElement(file);
   }
+}
+
+function imageMetaViaElement(file: Blob): Promise<MediaMeta> {
+  return new Promise((resolve) => {
+    const url = URL.createObjectURL(file);
+    const img = new Image();
+    const done = (meta: MediaMeta) => {
+      URL.revokeObjectURL(url);
+      resolve(meta);
+    };
+    img.onload = async () => {
+      try {
+        const canvas = drawScaled(img, img.naturalWidth, img.naturalHeight, THUMB_SIZE);
+        done({ width: img.naturalWidth, height: img.naturalHeight, preview: await canvasToBlob(canvas) });
+      } catch {
+        done({});
+      }
+    };
+    img.onerror = () => done({});
+    img.src = url;
+  });
 }
 
 export function videoMeta(file: File): Promise<MediaMeta> {
@@ -89,7 +114,7 @@ export function videoMeta(file: File): Promise<MediaMeta> {
       clearTimeout(timer);
       const base = { width: video.videoWidth || undefined, height: video.videoHeight || undefined, duration: Number.isFinite(video.duration) ? video.duration : undefined };
       try {
-        const canvas = drawScaled(video, video.videoWidth, video.videoHeight, 900);
+        const canvas = drawScaled(video, video.videoWidth, video.videoHeight, THUMB_SIZE);
         finish({ ...base, preview: await canvasToBlob(canvas) });
       } catch {
         finish(base);

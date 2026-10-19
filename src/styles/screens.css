@@ -1729,3 +1729,51 @@
   background: #fffcf5;
   box-shadow: 0 0 0 4px var(--gold-faint);
 }
+
+/* ---------- וידאו בשלמותו, ביחס המקורי ---------- */
+.video-box {
+  display: flex;
+  justify-content: center;
+}
+.video {
+  object-fit: contain;
+}
+.video-box--landscape .video,
+.video-box--unknown .video {
+  width: 100%;
+  height: auto;
+  max-height: 80dvh;
+}
+.video-box--portrait .video {
+  width: auto;
+  height: min(80dvh, 760px);
+  max-width: 100%;
+}
+.video:fullscreen {
+  max-height: none;
+  border-radius: 0;
+}
+.drive-frame--portrait {
+  width: auto;
+  height: min(80dvh, 760px);
+  max-width: 100%;
+  margin-inline: auto;
+}
+.drive-frame:fullscreen {
+  width: 100%;
+  height: 100%;
+  max-width: none;
+  aspect-ratio: auto !important;
+  border-radius: 0;
+  background: #000;
+}
+.drive-frame:-webkit-full-screen {
+  width: 100%;
+  height: 100%;
+  border-radius: 0;
+}
+.video-wrap__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}

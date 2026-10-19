@@ -2,7 +2,7 @@ import { Hono } from 'hono';
 import type { AppEnv } from '../env';
 import type { AuthStatus } from '../../shared/types';
 import {
-  checkRateLimit, clearAttempts, createSession, destroySession, recordFailedAttempt, requireUser,
+  checkRateLimit, clearAttempts, createSession, destroySession, recordFailedAttempt, requireUser, sessionCache,
   validateEmail, validatePassword,
 } from '../lib/auth';
 import { hashPassword, sha256Hex, timingSafeStringEqual, verifyPassword } from '../lib/crypto';
@@ -148,6 +148,7 @@ authRoutes.patch('/me', async (c) => {
   const body = await readJson(c.req.raw);
   const name = str(body.name, 80, 'שם', true)!;
   await c.env.DB.prepare('UPDATE users SET name = ? WHERE id = ?').bind(name, user.id).run();
+  sessionCache.clear();
   return c.json({ ok: true });
 });
 
@@ -166,6 +167,7 @@ authRoutes.post('/me/password', async (c) => {
     // ניתוק כל שאר המכשירים
     c.env.DB.prepare('DELETE FROM sessions WHERE user_id = ? AND id != ?').bind(user.id, c.get('sessionId')),
   ]);
+  sessionCache.clear();
   return c.json({ ok: true });
 });
 
@@ -207,6 +209,7 @@ authRoutes.post('/reset', async (c) => {
     c.env.DB.prepare('UPDATE users SET password_hash = ? WHERE id = ?').bind(await hashPassword(password), r.user_id),
     c.env.DB.prepare('DELETE FROM sessions WHERE user_id = ?').bind(r.user_id),
   ]);
+  sessionCache.clear();
   await audit(c.env.DB, r.user_id, 'user.password_reset', 'user', r.user_id);
   await createSession(c, r.user_id);
   return c.json({ ok: true });

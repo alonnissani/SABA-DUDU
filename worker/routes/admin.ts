@@ -2,7 +2,7 @@ import { Hono } from 'hono';
 import type { AppEnv } from '../env';
 import type { AdminUser, ArchiveStats, BackupRun, BackupStatus, HeroTraits, InviteInfo, ItemKind } from '../../shared/types';
 import { ITEM_KINDS } from '../../shared/constants';
-import { requireAdmin } from '../lib/auth';
+import { requireAdmin, sessionCache } from '../lib/auth';
 import { audit } from '../lib/audit';
 import { randomToken, sha256Hex } from '../lib/crypto';
 import { fail, intOrNull, newId, now, readJson, str } from '../lib/http';
@@ -53,6 +53,7 @@ adminRoutes.patch('/users/:id', async (c) => {
   }
   if (b.name !== undefined) stmts.push(c.env.DB.prepare('UPDATE users SET name = ? WHERE id = ?').bind(str(b.name, 80, 'שם', true), id));
   if (stmts.length) await c.env.DB.batch(stmts);
+  sessionCache.clear();
   await audit(c.env.DB, admin.id, 'user.update', 'user', id, b);
   return c.json({ ok: true });
 });
@@ -311,4 +312,45 @@ adminRoutes.get('/audit', async (c) => {
      LEFT JOIN users u ON u.id = a.user_id ORDER BY a.id DESC LIMIT 100`,
   ).all();
   return c.json(res.results);
+});
+
+// ---------- תמונות ממוזערות לתמונות קיימות ----------
+
+/** תמונות (ומסמכים שהם תמונה) שאין להן תמונה ממוזערת — נוצרות בדפדפן של המנהל, המקור לא משתנה. */
+adminRoutes.get('/thumbs/missing', async (c) => {
+  requireAdmin(c);
+  const res = await c.env.DB.prepare(
+    `SELECT i.id AS item_id, f.id AS file_id, f.mime, f.size, f.original_name FROM items i
+     JOIN files f ON f.item_id = i.id AND f.role = 'original'
+     WHERE i.deleted_at IS NULL AND i.kind IN ('photo', 'document') AND f.mime LIKE 'image/%'
+       AND NOT EXISTS (SELECT 1 FROM files t WHERE t.item_id = i.id AND t.role IN ('thumb', 'poster'))
+     ORDER BY i.created_at DESC LIMIT 2000`,
+  ).all<{ item_id: string; file_id: string; mime: string; size: number; original_name: string }>();
+  return c.json(res.results.map((r) => ({ itemId: r.item_id, fileId: r.file_id, mime: r.mime, size: r.size, name: r.original_name })));
+});
+
+/** שיוך תמונה ממוזערת שהועלתה זה עתה לפריט קיים (ועדכון מידות המקור אם חסרות). */
+adminRoutes.post('/items/:id/thumb', async (c) => {
+  const admin = requireAdmin(c);
+  const itemId = c.req.param('id');
+  const b = await readJson(c.req.raw);
+  if (typeof b.fileId !== 'string') fail(400, 'בקשה לא תקינה');
+  const db = c.env.DB;
+  const thumb = await db.prepare('SELECT id, role, item_id, created_by FROM files WHERE id = ?').bind(b.fileId).first<{
+    id: string; role: string; item_id: string | null; created_by: string;
+  }>();
+  if (!thumb || thumb.role !== 'thumb' || thumb.item_id || thumb.created_by !== admin.id) fail(400, 'קובץ לא תקין');
+  const exists = await db.prepare("SELECT 1 FROM files WHERE item_id = ? AND role IN ('thumb', 'poster')").bind(itemId).first();
+  if (exists) return c.json({ ok: true, skipped: true });
+  const item = await db.prepare('SELECT id FROM items WHERE id = ?').bind(itemId).first();
+  if (!item) fail(404, 'הפריט לא נמצא');
+  const width = intOrNull(b.width, 'רוחב', 1, 100000);
+  const height = intOrNull(b.height, 'גובה', 1, 100000);
+  await db.batch([
+    db.prepare('UPDATE files SET item_id = ?, position = 1 WHERE id = ? AND item_id IS NULL').bind(itemId, thumb.id),
+    db.prepare(
+      "UPDATE files SET width = COALESCE(width, ?), height = COALESCE(height, ?) WHERE item_id = ? AND role = 'original'",
+    ).bind(width, height, itemId),
+  ]);
+  return c.json({ ok: true });
 });

@@ -4,6 +4,10 @@ import type { AppEnv } from '../env';
 import type { CurrentUser, Role } from '../../shared/types';
 import { randomToken, sha256Hex } from './crypto';
 import { fail, now } from './http';
+import { TtlCache } from './cache';
+
+/** סשנים שאומתו לאחרונה (30 שניות) — כדי שכל תמונה בגלריה לא תדרוש שאילתה נוספת */
+export const sessionCache = new TtlCache<{ user: CurrentUser; sessionId: string; expiresAt: number }>(30_000);
 
 export const SESSION_COOKIE = 'sd_session';
 const SESSION_TTL_MS = 30 * 24 * 60 * 60 * 1000; // 30 יום
@@ -43,7 +47,10 @@ export async function createSession(c: Context<AppEnv>, userId: string): Promise
 
 export async function destroySession(c: Context<AppEnv>): Promise<void> {
   const sessionId = c.get('sessionId');
-  if (sessionId) await c.env.DB.prepare('DELETE FROM sessions WHERE id = ?').bind(sessionId).run();
+  if (sessionId) {
+    sessionCache.delete(sessionId);
+    await c.env.DB.prepare('DELETE FROM sessions WHERE id = ?').bind(sessionId).run();
+  }
   deleteCookie(c, SESSION_COOKIE, { path: '/', secure: isSecure(c) });
 }
 
@@ -54,6 +61,13 @@ export const loadSession: MiddlewareHandler<AppEnv> = async (c, next) => {
   const token = getCookie(c, SESSION_COOKIE);
   if (token && token.length < 200) {
     const id = await sha256Hex(token);
+    const cached = sessionCache.get(id);
+    if (cached && cached.expiresAt > now()) {
+      c.set('user', cached.user);
+      c.set('sessionId', cached.sessionId);
+      await next();
+      return;
+    }
     const row = await c.env.DB.prepare(
       `SELECT s.id AS session_id, s.expires_at, u.id, u.email, u.name, u.role, u.disabled_at
        FROM sessions s JOIN users u ON u.id = s.user_id WHERE s.id = ?`,
@@ -62,8 +76,10 @@ export const loadSession: MiddlewareHandler<AppEnv> = async (c, next) => {
       .first<SessionRow>();
     const t = now();
     if (row && row.expires_at > t && !row.disabled_at) {
-      c.set('user', { id: row.id, email: row.email, name: row.name, role: row.role });
+      const user: CurrentUser = { id: row.id, email: row.email, name: row.name, role: row.role };
+      c.set('user', user);
       c.set('sessionId', row.session_id);
+      sessionCache.set(id, { user, sessionId: row.session_id, expiresAt: row.expires_at });
       // הארכה הדרגתית של סשן פעיל
       if (row.expires_at - t < SESSION_TTL_MS - SESSION_REFRESH_MS) {
         await c.env.DB.prepare('UPDATE sessions SET expires_at = ? WHERE id = ?')

@@ -3,6 +3,10 @@ import type { AppEnv } from '../env';
 import { requireUser } from '../lib/auth';
 import { fail } from '../lib/http';
 import { getSetting } from '../lib/settings';
+import { TtlCache } from '../lib/cache';
+
+/** מידע על קבצים (60 שניות) — חוסך שאילתת D1 לכל תמונה בגלריה */
+export const fileCache = new TtlCache<FileAccessRow>(60_000);
 
 /**
  * הגשת קבצים — רק למשתמשים מחוברים, רק דרך ה-Worker (ה-bucket אינו ציבורי).
@@ -29,13 +33,15 @@ function contentDisposition(type: 'inline' | 'attachment', name: string): string
 fileRoutes.get('/:id', async (c) => {
   const user = requireUser(c);
   const id = c.req.param('id');
-  const file = await c.env.DB.prepare(
+  let file = fileCache.get(id) ?? null;
+  if (!file) file = await c.env.DB.prepare(
     `SELECT f.id, f.item_id, f.r2_key, f.mime, f.size, f.original_name, f.created_by, i.deleted_at
      FROM files f LEFT JOIN items i ON i.id = f.item_id WHERE f.id = ?`,
   )
     .bind(id)
     .first<FileAccessRow>();
   if (!file) fail(404, 'הקובץ לא נמצא');
+  if (file.item_id) fileCache.set(id, file);
   if (file.item_id) {
     // קובץ של פריט שנמחק — זמין רק למנהל (לצורך שחזור)
     if (file.deleted_at && user.role !== 'admin') fail(404, 'הקובץ לא נמצא');
