@@ -49,6 +49,8 @@ export interface ItemSummary {
   createdBy: PublicUser;
   files: FileInfo[];
   externalVideo: ExternalVideo | null;
+  /** לסיפור: תמונה ממוזערת של התמונה הראשונה שצורפה אליו (אם יש) */
+  coverFileId: string | null;
   commentCount: number;
   deletedAt: number | null;
 }

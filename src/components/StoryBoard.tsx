@@ -2,14 +2,11 @@ import { useEffect, useMemo, useState, type CSSProperties } from 'react';
 import type { ItemSummary } from '../../shared/types';
 import { StoryCard } from './ItemCards';
 
-/** מספר העמודות לפי רוחב המסך: עמודה אחת בטלפון (כדי לא לדחוס טקסט), 2 מ-560px, 3 מ-960px */
-const BREAKPOINTS: [number, number][] = [
-  [960, 3],
-  [560, 2],
-];
+/** מספר העמודות לפי רוחב המסך: לפחות 2 גם בטלפון (כרטיסים קומפקטיים), 3 מ-900px */
+const BREAKPOINTS: [number, number][] = [[900, 3]];
 
 function columnsFor(width: number): number {
-  return BREAKPOINTS.find(([min]) => width >= min)?.[1] ?? 1;
+  return BREAKPOINTS.find(([min]) => width >= min)?.[1] ?? 2;
 }
 
 function useColumnCount(): number {
@@ -35,7 +32,7 @@ const QUOTE_TYPES = new Set(['saying', 'joke']);
 
 /** גובה משוער של כרטיס — לחלוקה מאוזנת בין העמודות */
 function estimate(item: ItemSummary): number {
-  return 150 + item.title.length * 1.2 + Math.min(item.excerpt?.length ?? 0, 240) * 0.55;
+  return 150 + item.title.length * 1.2 + Math.min(item.excerpt?.length ?? 0, 240) * 0.55 + (item.coverFileId ? 20 : 0);
 }
 
 /**
@@ -70,13 +67,19 @@ export function StoryBoard({ items }: { items: ItemSummary[] }) {
               quote ? 'story-card--quote' : '',
               len > 180 ? 'story-card--long' : '',
             ].join(' ');
-            const style = {
-              '--tilt': `${TILTS[h % TILTS.length]}deg`,
-              '--mt': `${((h >>> 9) % 3) * 6}px`,
-              // בעמודה אחת (טלפון) — רוחב מעט שונה ויישור מתחלף, כדי שזה לא ייראה כמו רשימה
-              '--mx': `${((h >>> 11) % 3) * 14}px`,
+            const tilt = { '--tilt': `${TILTS[h % TILTS.length]}deg` } as CSSProperties;
+            // ריחוף עדין: לכל כרטיס משך, השהיה וכיוון משלו; מרווח עליון משתנה לפיזור
+            const float = {
+              '--mt': `${((h >>> 9) % 3) * 5}px`,
+              '--bob-dur': `${6 + ((h >>> 12) % 5)}s`,
+              '--bob-delay': `-${(h >>> 15) % 7}s`,
+              '--bob-y': `${(h >>> 18) % 2 ? -4 : 4}px`,
             } as CSSProperties;
-            return <StoryCard key={it.id} item={it} className={classes} style={style} />;
+            return (
+              <div key={it.id} className="story-float" style={float}>
+                <StoryCard item={it} className={classes} style={tilt} />
+              </div>
+            );
           })}
         </div>
       ))}

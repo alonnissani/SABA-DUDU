@@ -625,7 +625,8 @@ test('בן משפחה מוזמן — אין לו אפשרות מחיקה, והש
   await expect(member.getByRole('button', { name: 'מחיקת התמונה' })).toHaveCount(0);
   await member.getByRole('button', { name: 'סגירה' }).click();
   await member.goto('/c/story');
-  await member.locator('.story-card').first().click();
+  // הכרטיסים מרחפים בעדינות כל הזמן — לחיצה בלי לחכות ל״יציבות״
+  await member.locator('.story-card').first().click({ force: true });
   await expect(member.getByRole('button', { name: 'גם אני זוכר את זה' })).toBeVisible();
   await expect(member.getByRole('button', { name: 'מחיקה' })).toHaveCount(0);
   await expect(member.getByRole('button', { name: 'עריכה' })).toHaveCount(0);
@@ -737,29 +738,99 @@ test('סרטונים וסיפורים: סדר אקראי בכל כניסה, בל
   const hrefs = await page.locator('.story-card').evaluateAll((els) => els.map((e) => e.getAttribute('href') ?? e.querySelector('a')?.getAttribute('href')));
   expect(new Set(hrefs).size).toBe(totals.story);
 
-  // לוח מרחף: עמודה אחת בטלפון, בלי חפיפה בין כרטיסים, בלי גלילה אופקית, טקסט קריא
-  await expect(page.locator('.story-board__col')).toHaveCount(1);
+  // לוח מרחף: שתי עמודות גם בטלפון, בלי חפיפה בין כרטיסים, בלי גלילה אופקית, טקסט קריא
+  await expect(page.locator('.story-board__col')).toHaveCount(2);
   const layout = await page.locator('.story-card').evaluateAll((els) => {
     const boxes = els.map((e) => {
       const r = e.getBoundingClientRect();
-      return { top: r.top + scrollY, bottom: r.bottom + scrollY };
+      return { l: r.left, r: r.right, t: r.top + scrollY, b: r.bottom + scrollY };
     });
+    // חפיפה מקסימלית בין שני כרטיסים כלשהם (סובלנות קטנה בגלל ההטיה והריחוף)
     let overlap = 0;
-    // בעמודה אחת — הכרטיסים זה מתחת לזה (סובלנות קטנה בגלל ההטיה)
-    for (let i = 1; i < boxes.length; i++) overlap = Math.max(overlap, boxes[i - 1].bottom - boxes[i].top);
+    for (let i = 0; i < boxes.length; i++)
+      for (let j = i + 1; j < boxes.length; j++) {
+        const a = boxes[i], c = boxes[j];
+        const w = Math.min(a.r, c.r) - Math.max(a.l, c.l), h = Math.min(a.b, c.b) - Math.max(a.t, c.t);
+        if (w > 0 && h > 0) overlap = Math.max(overlap, Math.min(w, h));
+      }
     const fonts = els.flatMap((e) => Array.from(e.querySelectorAll('.story-card__title, .story-card__excerpt')).map((t) => parseFloat(getComputedStyle(t).fontSize)));
     const tilts = new Set(els.map((e) => (e as HTMLElement).style.getPropertyValue('--tilt')));
-    return { overlap, minFont: Math.min(...fonts), tilts: tilts.size };
+    const maxRight = Math.max(...boxes.map((b) => b.r)), minLeft = Math.min(...boxes.map((b) => b.l));
+    return { overlap, minFont: Math.min(...fonts), tilts: tilts.size, inside: minLeft >= 0 && maxRight <= innerWidth, bob: getComputedStyle(els[0].parentElement!).animationName };
   });
   expect(layout.overlap).toBeLessThan(6);
-  expect(layout.minFont).toBeGreaterThanOrEqual(15);
+  expect(layout.minFont).toBeGreaterThanOrEqual(12);
   expect(layout.tilts).toBeGreaterThan(2);
+  expect(layout.inside).toBe(true);
+  expect(layout.bob).toBe('story-bob');
   await noHorizontalScroll(page);
+  await page.setViewportSize({ width: 340, height: 844 });
+  await expect(page.locator('.story-board__col')).toHaveCount(2);
+  await noHorizontalScroll(page);
+  await page.setViewportSize({ width: 390, height: 844 });
   // כפתורי הסינון קומפקטיים
   await page.evaluate(() => scrollTo(0, 0));
   for (const h of await page.locator('.filters--compact select').evaluateAll((els) => els.map((e) => e.getBoundingClientRect().height))) expect(h).toBeLessThanOrEqual(36);
   await page.waitForTimeout(600);
   await page.screenshot({ path: path.join(SHOTS, '39-stories-board.png') });
+});
+
+test('תמונה לסיפור: ממוזערת לצד הכותרת, הוספה, החלפה והסרה בעריכה', async ({ page }) => {
+  await login(page);
+  const origin = new URL(page.url()).origin;
+  const body = 'סבא היה מכין קפה שחור בכל בוקר ויושב במרפסת, ומספר לנו על הימים ההם.';
+  const story = (await (await page.request.post('/api/items', { data: { kind: 'story', title: 'הבוקר במרפסת', body, storyType: 'family' }, headers: { origin } })).json()) as { id: string };
+  const cardOf = () => page.locator('.story-card', { has: page.getByText('הבוקר במרפסת') });
+  const summary = async () =>
+    ((await (await page.request.get('/api/items?kind=story&limit=100')).json()) as { items: { id: string; coverFileId: string | null; title: string; excerpt: string }[] }).items.find((i) => i.id === story.id)!;
+  expect((await summary()).coverFileId).toBeNull();
+
+  const openEdit = async () => {
+    await page.goto(`/item/${story.id}`);
+    await page.getByRole('button', { name: /עריכה/ }).first().click();
+    await expect(page.locator('.story-photo')).toBeVisible();
+  };
+  // הוספה מהאלבום
+  await openEdit();
+  await page.getByRole('button', { name: 'בחירה מהאלבום' }).click();
+  await page.getByRole('button', { name: 'צירוף' }).first().click();
+  await expect(page.locator('.story-photo__preview img')).toBeVisible();
+  await page.getByRole('button', { name: 'שמירה', exact: true }).click();
+  await expect(page.locator('.story-photo')).toHaveCount(0);
+  const first = (await summary()).coverFileId;
+  expect(first).not.toBeNull();
+  await page.goto('/c/story?sort=new');
+  const thumb = cardOf().locator('.story-card__thumb');
+  await expect(thumb).toBeVisible();
+  const t = (await thumb.boundingBox())!;
+  expect(t.width).toBeLessThanOrEqual(60);
+  await page.evaluate(() => document.querySelector('.story-card--photo')?.scrollIntoView({ block: 'center' }));
+  await page.waitForTimeout(500);
+  await page.screenshot({ path: path.join(SHOTS, '41-story-thumb.png') });
+
+  // החלפה בהעלאת תמונה חדשה
+  await openEdit();
+  await page.locator('.story-photo input[type=file]').setInputFiles(fx('photo-a.jpg'));
+  await page.getByRole('button', { name: 'שמירה', exact: true }).click();
+  await expect(page.locator('.story-photo')).toHaveCount(0, { timeout: 30_000 });
+  const second = (await summary()).coverFileId;
+  expect(second).not.toBeNull();
+  expect(second).not.toBe(first);
+
+  // הסרה — התמונה נשארת באלבום, שאר פרטי הסיפור לא משתנים
+  const photosBefore = ((await (await page.request.get('/api/items?kind=photo&limit=1')).json()) as { total: number }).total;
+  await openEdit();
+  await page.getByRole('button', { name: 'הסרת התמונה' }).click();
+  await page.getByRole('button', { name: 'שמירה', exact: true }).click();
+  await expect(page.locator('.story-photo')).toHaveCount(0);
+  const after = await summary();
+  expect(after.coverFileId).toBeNull();
+  expect(after.title).toBe('הבוקר במרפסת');
+  expect(after.excerpt).toBe(body);
+  expect(((await (await page.request.get('/api/items?kind=photo&limit=1')).json()) as { total: number }).total).toBe(photosBefore);
+  await page.goto('/c/story?sort=new');
+  await expect(cardOf()).toBeVisible();
+  await expect(cardOf().locator('.story-card__thumb')).toHaveCount(0);
 });
 
 test('מסך פתיחה: זיכרונות מרחפים, לא חוסמים, וחזרה מהכותרת בלי התנתקות', async ({ page }) => {
@@ -803,7 +874,8 @@ test('מסך פתיחה: זיכרונות מרחפים, לא חוסמים, וח�
       return inter(b, photo) / (b.width * b.height) + inter(b, cta) + inter(b, title) + Math.max(0, -b.left) + Math.max(0, b.right - innerWidth);
     });
   });
-  for (const o of overlap) expect(o).toBeLessThan(0.08);
+  // (מסגרת התמונה המסובבת גדלה בסיבוב, ופינותיה שקופות — לכן סובלנות קטנה)
+  for (const o of overlap) expect(o).toBeLessThan(0.12);
   await noHorizontalScroll(page);
   const cta = page.getByRole('button', { name: 'כניסה לזיכרונות' });
   const box = (await cta.boundingBox())!;

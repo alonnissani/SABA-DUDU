@@ -138,9 +138,16 @@ export function AudioCard({ item }: { item: ItemSummary }) {
 
 export function StoryCard({ item, className, style }: { item: ItemSummary; className?: string; style?: CSSProperties }) {
   return (
-    <Link to={`/item/${item.id}`} className={`card story-card ${className ?? ''}`} style={style}>
+    <Link to={`/item/${item.id}`} className={`card story-card ${item.coverFileId ? 'story-card--photo' : ''} ${className ?? ''}`} style={style}>
       {item.storyType && <span className="badge">{STORY_TYPE_LABEL[item.storyType]}</span>}
-      <span className="story-card__title">{item.title}</span>
+      {item.coverFileId ? (
+        <span className="story-card__head">
+          <img className="story-card__thumb" src={fileUrl(item.coverFileId)} alt="" loading="lazy" decoding="async" />
+          <span className="story-card__title">{item.title}</span>
+        </span>
+      ) : (
+        <span className="story-card__title">{item.title}</span>
+      )}
       {item.excerpt && <span className="story-card__excerpt">{item.excerpt}</span>}
       <span className="story-card__foot">
         <ItemMeta item={item} />

@@ -1,6 +1,6 @@
 import { useState, type FormEvent } from 'react';
 import { Link, useNavigate, useParams } from 'react-router';
-import type { ItemDetail, StoryType } from '../../shared/types';
+import type { ItemDetail, ItemSummary, StoryType } from '../../shared/types';
 import { KIND_LABELS, STORY_TYPES, STORY_TYPE_LABEL, formatBytes } from '../../shared/constants';
 import { api, fileUrl } from '../api/client';
 import { useApp, useLoad, useToast } from '../state';
@@ -13,6 +13,8 @@ import { MetaFields, metaPayload, type MetaValues } from '../components/MetaFiel
 import { accessibleTitle, displayTitle, displayableImage, formatDate, originalOf, previewOf, previewUrl } from '../lib/media';
 import { parseDriveFileId } from '../../shared/drive';
 import { DriveVideo, UploadedVideo } from '../components/VideoPlayer';
+import { AttachPicker } from './AddItem';
+import { precheck, uploadAsItem } from '../lib/uploader';
 
 export function ItemScreen() {
   const { id = '' } = useParams();
@@ -391,12 +393,23 @@ function EditItem({ item, onClose, onSaved }: { item: ItemDetail; onClose: () =>
   });
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // תמונת הסיפור: התמונה הראשונה שצורפה; אפשר להוסיף, להחליף או להסיר
+  const currentPhoto = item.kind === 'story' ? item.links.find((l) => l.kind === 'photo' && !l.deletedAt) ?? null : null;
+  const [photo, setPhoto] = useState<CoverChoice>({ type: 'keep' });
   const save = async (e: FormEvent) => {
     e.preventDefault();
     setBusy(true);
     setError(null);
     try {
       const m = metaPayload(meta);
+      let coverPhotoId: string | null | undefined;
+      if (photo.type === 'archive') coverPhotoId = photo.item.id;
+      else if (photo.type === 'none') coverPhotoId = null;
+      else if (photo.type === 'file') {
+        // תמונה חדשה נשמרת גם באלבום, כמו קובץ שמצורף בכתיבת סיפור
+        const uploaded = await uploadAsItem('photo', photo.file, { title: '', description: `צורף לסיפור ״${title.trim()}״` }, () => undefined);
+        coverPhotoId = uploaded.id;
+      }
       if (item.externalVideo && !parseDriveFileId(externalUrl)) throw new Error('קישור Google Drive לא תקין');
       const updated = await api.edit(item.id, {
         ...(item.externalVideo && externalUrl !== item.externalVideo.url ? { externalUrl } : {}),
@@ -407,6 +420,7 @@ function EditItem({ item, onClose, onSaved }: { item: ItemDetail; onClose: () =>
         people: m.people ?? '',
         tags: m.tags,
         ...(item.kind === 'story' ? { body, storyType } : {}),
+        ...(coverPhotoId !== undefined ? { coverPhotoId } : {}),
       });
       onSaved(updated);
     } catch (err) {
@@ -440,6 +454,7 @@ function EditItem({ item, onClose, onSaved }: { item: ItemDetail; onClose: () =>
             </Field>
           </>
         )}
+        {item.kind === 'story' && <StoryPhotoField current={currentPhoto} value={photo} onChange={setPhoto} disabled={busy} />}
         <MetaFields value={meta} onChange={setMeta} hideDescription={item.kind === 'story'} />
         {error && <ErrorBox message={error} />}
         <div className="form__actions">
@@ -448,5 +463,73 @@ function EditItem({ item, onClose, onSaved }: { item: ItemDetail; onClose: () =>
         </div>
       </form>
     </Modal>
+  );
+}
+
+type CoverChoice = { type: 'keep' } | { type: 'none' } | { type: 'archive'; item: ItemSummary } | { type: 'file'; file: File; url: string };
+
+/** בחירת תמונת הסיפור בעריכה — מהאלבום או העלאה חדשה; ההסרה מנתקת את התמונה מהסיפור בלבד */
+function StoryPhotoField({ current, value, onChange, disabled }: { current: ItemSummary | null; value: CoverChoice; onChange: (v: CoverChoice) => void; disabled: boolean }) {
+  const [picker, setPicker] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const shown =
+    value.type === 'file' ? value.url : value.type === 'archive' ? previewUrl(value.item) : value.type === 'keep' && current ? previewUrl(current) : null;
+  const has = Boolean(shown);
+  const choose = (v: CoverChoice) => {
+    if (value.type === 'file') URL.revokeObjectURL(value.url);
+    setError(null);
+    onChange(v);
+  };
+  return (
+    <div className="field">
+      <span className="field__label">תמונה לסיפור (לא חובה)</span>
+      <div className="story-photo">
+        <span className="story-photo__preview" aria-hidden="true">
+          {shown ? <img src={shown} alt="" /> : <Icon name="photo" size={26} />}
+        </span>
+        <div className="story-photo__actions">
+          <button type="button" className="btn btn--ghost btn--sm" onClick={() => setPicker(true)} disabled={disabled}>
+            <Icon name="photo" size={18} />
+            {has ? 'החלפה מהאלבום' : 'בחירה מהאלבום'}
+          </button>
+          <label className={`btn btn--ghost btn--sm ${disabled ? 'is-disabled' : ''}`}>
+            <input
+              type="file"
+              className="visually-hidden"
+              accept="image/*,.heic,.heif"
+              disabled={disabled}
+              onChange={(e) => {
+                const f = e.target.files?.[0];
+                e.target.value = '';
+                if (!f) return;
+                const err = precheck('photo', f);
+                if (err) return setError(err);
+                choose({ type: 'file', file: f, url: URL.createObjectURL(f) });
+              }}
+            />
+            <Icon name="upload" size={18} />
+            {has ? 'העלאת תמונה אחרת' : 'העלאת תמונה חדשה'}
+          </label>
+          {has && (
+            <button type="button" className="btn btn--text btn--sm" onClick={() => choose(current ? { type: 'none' } : { type: 'keep' })} disabled={disabled}>
+              הסרת התמונה
+            </button>
+          )}
+        </div>
+      </div>
+      {value.type === 'none' && <p className="field__hint">התמונה תוסר מהסיפור בשמירה (היא נשארת באלבום).</p>}
+      {error && <p className="pending__error">{error}</p>}
+      {picker && (
+        <AttachPicker
+          onlyKind="photo"
+          selected={value.type === 'archive' ? [value.item.id] : value.type === 'keep' && current ? [current.id] : []}
+          onClose={() => setPicker(false)}
+          onPick={(it) => {
+            choose(current && it.id === current.id ? { type: 'keep' } : { type: 'archive', item: it });
+            setPicker(false);
+          }}
+        />
+      )}
+    </div>
   );
 }

@@ -387,6 +387,40 @@ describe('כותרות תמונות', () => {
   });
 });
 
+describe('תמונת סיפור', () => {
+  it('הוספה, החלפה והסרה; מופיעה בכרטיס; רק מנהל ורק תמונה', async () => {
+    const admin = await setupAdmin();
+    const member = await inviteMember(admin);
+    const p1 = await createMedia(admin, 'photo', PNG, 'a.png', 'image/png');
+    const p2 = await createMedia(admin, 'photo', PNG, 'b.png', 'image/png');
+    const audio = await createMedia(admin, 'audio', MP3, 'c.mp3', 'audio/mpeg');
+    const story = (await (await admin.post('/api/items', { kind: 'story', title: 'סיפור', body: 'תוכן', storyType: 'family', linkIds: [audio.id] })).json()) as { id: string };
+    const cover = async () =>
+      ((await (await admin.get('/api/items?kind=story')).json()) as { items: { id: string; coverFileId: string | null }[] }).items.find((i) => i.id === story.id)!.coverFileId;
+    expect(await cover()).toBeNull();
+    expect((await admin.patch(`/api/items/${story.id}`, { coverPhotoId: p1.id })).status).toBe(200);
+    const c1 = await cover();
+    expect(c1).not.toBeNull();
+    expect((await admin.patch(`/api/items/${story.id}`, { coverPhotoId: p2.id })).status).toBe(200);
+    const c2 = await cover();
+    expect(c2).not.toBe(c1);
+    // ההחלפה לא נוגעת בשאר הצירופים
+    const detail = (await (await admin.get(`/api/items/${story.id}`)).json()) as { links: { id: string }[]; title: string };
+    expect(detail.links.map((l) => l.id).sort()).toEqual([audio.id, p2.id].sort());
+    expect((await admin.patch(`/api/items/${story.id}`, { coverPhotoId: null })).status).toBe(200);
+    expect(await cover()).toBeNull();
+    const after = (await (await admin.get(`/api/items/${story.id}`)).json()) as { links: { id: string }[]; title: string; body: string };
+    expect(after.links.map((l) => l.id)).toEqual([audio.id]);
+    expect(after.title).toBe('סיפור');
+    expect(after.body).toBe('תוכן');
+    // התמונות עצמן נשארות באלבום
+    expect(((await (await admin.get('/api/items?kind=photo')).json()) as { total: number }).total).toBe(2);
+    expect((await admin.patch(`/api/items/${story.id}`, { coverPhotoId: audio.id })).status).toBe(400);
+    expect((await admin.patch(`/api/items/${p1.id}`, { coverPhotoId: p2.id })).status).toBe(400);
+    expect((await member.patch(`/api/items/${story.id}`, { coverPhotoId: p1.id })).status).toBe(403);
+  });
+});
+
 describe('תמונת ברירת המחדל של מסמכים', () => {
   it('מוגשת רק למשתמשים מחוברים', async () => {
     const admin = await setupAdmin();

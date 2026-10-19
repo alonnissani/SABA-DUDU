@@ -71,6 +71,8 @@ export interface NewItem {
   tags?: string[];
   files?: { id: string; width?: number; height?: number; duration?: number }[];
   linkIds?: string[];
+  /** סיפור (עריכה): תמונת הסיפור — מזהה תמונה מהאלבום, או null להסרה */
+  coverPhotoId?: string | null;
   /** סרטון: קישור שיתוף ל-Google Drive במקום קובץ */
   externalUrl?: string;
 }

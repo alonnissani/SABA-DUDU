@@ -467,19 +467,20 @@ function StoryForm() {
   );
 }
 
-function AttachPicker({ selected, onPick, onClose }: { selected: string[]; onPick: (i: ItemSummary) => void; onClose: () => void }) {
-  const [kind, setKind] = useState<ItemKind | ''>('');
+/** בחירת פריטים מהארכיון לצירוף לסיפור. עם onlyKind — רק מסוג אחד (למשל תמונת סיפור). */
+export function AttachPicker({ selected, onPick, onClose, onlyKind }: { selected: string[]; onPick: (i: ItemSummary) => void; onClose: () => void; onlyKind?: ItemKind }) {
+  const [kind, setKind] = useState<ItemKind | ''>(onlyKind ?? '');
   const list = useLoad(() => api.attachable(kind || undefined), [kind]);
   const sel = useMemo(() => new Set(selected), [selected]);
   return (
-    <Modal title="בחירת פריטים לצירוף" onClose={onClose} wide>
-      <div className="chips chips--tabs" role="tablist">
+    <Modal title={onlyKind === 'photo' ? 'בחירת תמונה מהאלבום' : 'בחירת פריטים לצירוף'} onClose={onClose} wide>
+      {!onlyKind && <div className="chips chips--tabs" role="tablist">
         {(['', 'photo', 'audio', 'video', 'document'] as const).map((k) => (
           <button key={k} type="button" role="tab" aria-selected={kind === k} className={`chip ${kind === k ? 'is-active' : ''}`} onClick={() => setKind(k)}>
             {k ? KIND_LABELS[k].plural : 'הכול'}
           </button>
         ))}
-      </div>
+      </div>}
       {list.loading ? (
         <Spinner />
       ) : list.error ? (

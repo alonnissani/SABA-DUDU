@@ -142,6 +142,7 @@ interface CreateBody {
   tags?: unknown;
   files?: { id?: unknown; width?: unknown; height?: unknown; duration?: unknown }[];
   linkIds?: unknown;
+  coverPhotoId?: unknown;
   externalUrl?: unknown;
 }
 
@@ -242,6 +243,38 @@ itemRoutes.post('/items', async (c) => {
   return c.json(await getItemDetail(db, row, false), 201);
 });
 
+/**
+ * תמונת הסיפור (התמונה הראשונה שצורפה אליו): הוספה, החלפה (מזהה תמונה) או הסרה (null).
+ * ההסרה רק מנתקת את התמונה מהסיפור — התמונה עצמה נשארת באלבום. שאר הצירופים לא משתנים.
+ */
+async function coverPhotoStatements(db: D1Database, row: { id: string; kind: string }, value: unknown): Promise<D1PreparedStatement[]> {
+  if (row.kind !== 'story') fail(400, 'אפשר לצרף תמונה רק לסיפור');
+  const current = await db
+    .prepare(
+      `SELECT l.item_id, l.position FROM item_links l JOIN items p ON p.id = l.item_id
+       WHERE l.story_id = ? AND p.kind = 'photo' AND p.deleted_at IS NULL ORDER BY l.position, p.id LIMIT 1`,
+    )
+    .bind(row.id)
+    .first<{ item_id: string; position: number }>();
+  if (value === null) {
+    return current ? [db.prepare('DELETE FROM item_links WHERE story_id = ? AND item_id = ?').bind(row.id, current.item_id)] : [];
+  }
+  if (typeof value !== 'string') fail(400, 'תמונה לא תקינה');
+  const photo = await db.prepare("SELECT id FROM items WHERE id = ? AND kind = 'photo' AND deleted_at IS NULL").bind(value).first();
+  if (!photo) fail(400, 'התמונה לא נמצאה באלבום');
+  if (current?.item_id === value) return [];
+  const min = await db.prepare('SELECT MIN(position) AS m FROM item_links WHERE story_id = ?').bind(row.id).first<{ m: number | null }>();
+  const stmts: D1PreparedStatement[] = [];
+  if (current) stmts.push(db.prepare('DELETE FROM item_links WHERE story_id = ? AND item_id = ?').bind(row.id, current.item_id));
+  // התמונה החדשה נכנסת ראשונה — וכך היא תמונת הסיפור
+  stmts.push(
+    db
+      .prepare('INSERT INTO item_links (story_id, item_id, position) VALUES (?, ?, ?) ON CONFLICT(story_id, item_id) DO UPDATE SET position = excluded.position')
+      .bind(row.id, value, (min?.m ?? 0) - 1),
+  );
+  return stmts;
+}
+
 /** עריכת פריט — מנהל בלבד. */
 itemRoutes.patch('/items/:id', async (c) => {
   const admin = requireAdmin(c);
@@ -272,6 +305,7 @@ itemRoutes.patch('/items/:id', async (c) => {
     const ext = parseExternalUrl(b.externalUrl);
     stmts.push(db.prepare('UPDATE external_media SET file_id = ?, url = ?, updated_at = ? WHERE item_id = ?').bind(ext.fileId, ext.url, now(), row.id));
   }
+  if ('coverPhotoId' in b) stmts.push(...(await coverPhotoStatements(db, row, b.coverPhotoId)));
   if ('tags' in b) {
     const tagIds = await ensureTags(db, parseTags(b.tags));
     stmts.push(db.prepare('DELETE FROM item_tags WHERE item_id = ?').bind(row.id));
