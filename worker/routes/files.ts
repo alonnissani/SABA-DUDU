@@ -4,9 +4,24 @@ import { requireUser } from '../lib/auth';
 import { fail } from '../lib/http';
 import { getSetting } from '../lib/settings';
 import { TtlCache } from '../lib/cache';
+import { parseDriveVirtualId } from '../../shared/drive';
+import { driveDownloadUrl, fetchDriveImage } from '../lib/drive';
 
 /** מידע על קבצים (60 שניות) — חוסך שאילתת D1 לכל תמונה בגלריה */
 export const fileCache = new TtlCache<FileAccessRow>(60_000);
+interface DrivePhotoRow {
+  file_id: string;
+  resource_key: string | null;
+  removed_at: number | null;
+  deleted_at: number | null;
+}
+const driveCache = new TtlCache<DrivePhotoRow>(60_000);
+
+/** אחרי מחיקה/שחזור של פריט — כדי שההרשאות יתעדכנו מיד */
+export function clearFileCaches() {
+  fileCache.clear();
+  driveCache.clear();
+}
 
 /**
  * הגשת קבצים — רק למשתמשים מחוברים, רק דרך ה-Worker (ה-bucket אינו ציבורי).
@@ -33,6 +48,26 @@ function contentDisposition(type: 'inline' | 'attachment', name: string): string
 fileRoutes.get('/:id', async (c) => {
   const user = requireUser(c);
   const id = c.req.param('id');
+  // תמונה מ-Google Drive (״קובץ וירטואלי״) — מועברת מגוגל, בלי עותק אצלנו
+  const drive = parseDriveVirtualId(id);
+  if (drive) {
+    let photo = driveCache.get(drive.fileId) ?? null;
+    if (!photo) {
+      photo = await c.env.DB.prepare(
+        `SELECT d.file_id, d.resource_key, d.removed_at, i.deleted_at FROM drive_photos d JOIN items i ON i.id = d.item_id WHERE d.file_id = ?`,
+      )
+        .bind(drive.fileId)
+        .first<DrivePhotoRow>();
+      if (photo) driveCache.set(drive.fileId, photo);
+    }
+    // רק תמונות שסונכרנו מהתיקייה המחוברת — לא שער פתוח לכל קובץ בדרייב
+    const heroId = photo ? null : await getSetting(c.env.DB, 'hero_file_id');
+    if (!photo && heroId !== id) fail(404, 'הקובץ לא נמצא');
+    if (photo && (photo.deleted_at || photo.removed_at) && user.role !== 'admin') fail(404, 'הקובץ לא נמצא');
+    // הורדת המקור — ישירות מגוגל
+    if (c.req.query('download')) return c.redirect(driveDownloadUrl(drive.fileId, photo?.resource_key ?? null), 302);
+    return fetchDriveImage(c.env, drive.fileId, drive.role, photo?.resource_key ?? null);
+  }
   let file = fileCache.get(id) ?? null;
   if (!file) file = await c.env.DB.prepare(
     `SELECT f.id, f.item_id, f.r2_key, f.mime, f.size, f.original_name, f.created_by, i.deleted_at

@@ -12,6 +12,11 @@ import { fileRoutes } from './routes/files';
 import { searchRoutes } from './routes/search';
 import { adminRoutes } from './routes/admin';
 import { assetRoutes } from './routes/assets';
+import { driveRoutes } from './routes/drive';
+import { scheduledDriveSync } from './lib/drive';
+
+/** חייב להתאים ל-triggers.crons ב-wrangler.jsonc */
+const DAILY_BACKUP_CRON = '0 2 * * *';
 
 const app = new Hono<AppEnv>().basePath('/api');
 
@@ -43,6 +48,7 @@ app.route('/uploads', uploadRoutes);
 app.route('/files', fileRoutes);
 app.route('/assets', assetRoutes);
 app.route('/search', searchRoutes);
+app.route('/admin/drive', driveRoutes);
 app.route('/admin', adminRoutes);
 app.route('/', itemRoutes);
 
@@ -58,8 +64,12 @@ app.onError((err, c) => {
 
 export default {
   fetch: app.fetch,
-  /** גיבוי לילי — פועל רק אם הוגדר bucket גיבוי (BACKUP). */
-  async scheduled(_controller: ScheduledController, env: Env, ctx: ExecutionContext) {
-    ctx.waitUntil(runBackup(env, { maxFiles: 300, timeBudgetMs: 10 * 60 * 1000 }));
+  /**
+   * משימות מתוזמנות: גיבוי לילי (רק אם הוגדר bucket גיבוי), וסנכרון שעתי של תיקיית Google Drive.
+   */
+  async scheduled(controller: ScheduledController, env: Env, ctx: ExecutionContext) {
+    await ensureSchema(env.DB);
+    if (controller.cron === DAILY_BACKUP_CRON) ctx.waitUntil(runBackup(env, { maxFiles: 300, timeBudgetMs: 10 * 60 * 1000 }));
+    else ctx.waitUntil(scheduledDriveSync(env));
   },
 } satisfies ExportedHandler<Env>;

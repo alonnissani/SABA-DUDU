@@ -1,3 +1,4 @@
+import { DRIVE_FILE_PREFIX, driveVirtualId } from '../../shared/drive';
 import type {
   CommentInfo, ExternalVideo, FileInfo, FileRole, ItemDetail, ItemKind, ItemSummary, StoryType, TranscriptStatus,
 } from '../../shared/types';
@@ -61,6 +62,18 @@ function excerptOf(body: string | null): string | null {
   return flat.length > 240 ? `${flat.slice(0, 240)}…` : flat;
 }
 
+/**
+ * ״קבצים וירטואליים״ לתמונה מ-Google Drive: המקור (תצוגה גדולה) והממוזערת מוגשים דרך /api/files/gd:…
+ * מגוגל, בפורמט שהדפדפן מציג — כך הגלריה, התצוגה המלאה ו״זיכרון מסבא״ עובדים בלי שינוי.
+ */
+function driveFiles(d: { file_id: string; mime: string; width: number | null; height: number | null; size: number | null }): FileInfo[] {
+  const base = { mime: 'image/jpeg', width: d.width, height: d.height, duration: null };
+  return [
+    { ...base, id: driveVirtualId(d.file_id, 'original'), role: 'original', size: d.size ?? 0, originalName: `drive-${d.file_id}` },
+    { ...base, id: driveVirtualId(d.file_id, 'thumb'), role: 'thumb', size: 0, originalName: '' },
+  ];
+}
+
 /** הופך שורות פריטים לאובייקטים מלאים (קבצים, תגיות, מספר תגובות) בכמה שאילתות מרוכזות. */
 export async function toSummaries(db: D1Database, rows: ItemRow[]): Promise<ItemSummary[]> {
   if (!rows.length) return [];
@@ -70,10 +83,11 @@ export async function toSummaries(db: D1Database, rows: ItemRow[]): Promise<Item
   const counts = new Map<string, number>();
   const external = new Map<string, ExternalVideo>();
   const covers = new Map<string, string>();
+  const drive = new Map<string, { file_id: string; mime: string; width: number | null; height: number | null; size: number | null }>();
 
   for (const part of chunks(ids)) {
     const ph = placeholders(part.length);
-    const [f, t, c, x, v] = await db.batch([
+    const [f, t, c, x, v, d] = await db.batch([
       db.prepare(
         `SELECT id, item_id, role, mime, size, original_name, width, height, duration FROM files
          WHERE item_id IN (${ph}) ORDER BY position, created_at`,
@@ -86,13 +100,21 @@ export async function toSummaries(db: D1Database, rows: ItemRow[]): Promise<Item
         `SELECT item_id, COUNT(*) AS n FROM comments WHERE deleted_at IS NULL AND item_id IN (${ph}) GROUP BY item_id`,
       ).bind(...part),
       db.prepare(`SELECT item_id, provider, file_id, url FROM external_media WHERE item_id IN (${ph})`).bind(...part),
-      // תמונת הסיפור: התמונה הראשונה (לפי הסדר) מבין התמונות שצורפו לו ולא נמחקו
+      // תמונת הסיפור: התמונה הראשונה (לפי הסדר) מבין התמונות שצורפו לו ולא נמחקו — מהאתר או מ-Google Drive
       db.prepare(
         `SELECT l.story_id, l.position, p.id AS photo_id, f.id AS file_id, f.role FROM item_links l
          JOIN items p ON p.id = l.item_id AND p.kind = 'photo' AND p.deleted_at IS NULL
          JOIN files f ON f.item_id = p.id AND f.role IN ('thumb', 'original')
-         WHERE l.story_id IN (${ph}) ORDER BY l.story_id, l.position, p.id`,
-      ).bind(...part),
+         WHERE l.story_id IN (${ph})
+         UNION ALL
+         SELECT l.story_id, l.position, p.id AS photo_id, '${DRIVE_FILE_PREFIX}' || dp.file_id || ':t' AS file_id, 'thumb' AS role FROM item_links l
+         JOIN items p ON p.id = l.item_id AND p.kind = 'photo' AND p.deleted_at IS NULL
+         JOIN drive_photos dp ON dp.item_id = p.id
+         WHERE l.story_id IN (${ph})
+         ORDER BY 1, 2, 3`,
+      ).bind(...part, ...part),
+      // תמונות מ-Google Drive: הקובץ נשאר בדרייב, כאן רק המזהה והמידות
+      db.prepare(`SELECT item_id, file_id, mime, width, height, size FROM drive_photos WHERE item_id IN (${ph})`).bind(...part),
     ]);
     for (const row of f.results as unknown as FileRow[]) {
       const list = files.get(row.item_id) ?? [];
@@ -107,6 +129,9 @@ export async function toSummaries(db: D1Database, rows: ItemRow[]): Promise<Item
     for (const row of c.results as unknown as { item_id: string; n: number }[]) counts.set(row.item_id, row.n);
     for (const row of x.results as unknown as { item_id: string; provider: 'gdrive'; file_id: string; url: string }[]) {
       external.set(row.item_id, { provider: row.provider, fileId: row.file_id, url: row.url });
+    }
+    for (const row of d.results as unknown as { item_id: string; file_id: string; mime: string; width: number | null; height: number | null; size: number | null }[]) {
+      drive.set(row.item_id, row);
     }
     const coverPhoto = new Map<string, string>();
     for (const row of v.results as unknown as { story_id: string; photo_id: string; file_id: string; role: string }[]) {
@@ -130,8 +155,8 @@ export async function toSummaries(db: D1Database, rows: ItemRow[]): Promise<Item
     people: r.people,
     tags: tags.get(r.id) ?? [],
     createdAt: r.created_at,
-    createdBy: { id: r.created_by, name: r.creator_name },
-    files: files.get(r.id) ?? [],
+    createdBy: drive.has(r.id) ? { id: r.created_by, name: 'Google Drive' } : { id: r.created_by, name: r.creator_name },
+    files: drive.has(r.id) ? driveFiles(drive.get(r.id)!) : files.get(r.id) ?? [],
     externalVideo: external.get(r.id) ?? null,
     coverFileId: covers.get(r.id) ?? null,
     commentCount: counts.get(r.id) ?? 0,

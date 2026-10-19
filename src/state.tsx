@@ -18,6 +18,7 @@ const EMPTY_SETTINGS: SiteSettings = {
   heroFileId: null,
   heroTraits: { quotes: [], symbols: [], details: [] },
   homePhotos: [],
+  driveFolderUrl: null,
 };
 
 const Ctx = createContext<AppState | null>(null);

@@ -33,7 +33,8 @@
   ],
 
   // גיבוי לילי (02:00 UTC). פועל רק אם הוגדר BACKUP.
-  "triggers": { "crons": ["0 2 * * *"] }
+  // 0 2 * * * — גיבוי לילי; 23 * * * * — סנכרון שעתי של תיקיית Google Drive
+  "triggers": { "crons": ["0 2 * * *", "23 * * * *"] }
 
-  // סודות (לא נשמרים בקוד): wrangler secret put SETUP_TOKEN
+  // סודות (לא נשמרים בקוד): wrangler secret put SETUP_TOKEN, wrangler secret put GOOGLE_DRIVE_API_KEY
 }

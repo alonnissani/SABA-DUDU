@@ -1,11 +1,13 @@
 import { execFileSync } from 'node:child_process';
-import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { DRIVE_MOCK_PORT, MOCK_KEY, startDriveMock } from './drive-mock';
 import path from 'node:path';
 
 export const FIXTURES = path.resolve('test-results/fixtures');
 
 /** יוצר קבצי בדיקה סינתטיים (דוגמאות צבע וצליל — לא תוכן משפחתי) */
 export default function globalSetup() {
+  checkDevVars();
   mkdirSync(FIXTURES, { recursive: true });
   const ff = (args: string[]) => execFileSync('ffmpeg', ['-y', '-loglevel', 'error', ...args]);
   const out = (f: string) => path.join(FIXTURES, f);
@@ -22,4 +24,15 @@ export default function globalSetup() {
       '%PDF-1.4\n1 0 obj<</Type/Catalog/Pages 2 0 R>>endobj\n2 0 obj<</Type/Pages/Kids[3 0 R]/Count 1>>endobj\n3 0 obj<</Type/Page/Parent 2 0 R/MediaBox[0 0 300 200]/Contents 4 0 R/Resources<<>>>>endobj\n4 0 obj<</Length 44>>stream\n0.6 0.5 0.3 rg 20 20 260 160 re f\nendstream endobj\ntrailer<</Root 1 0 R>>\n%%EOF\n',
     );
   }
+  // Google Drive מדומה — נסגר בסוף הריצה
+  const server = startDriveMock(FIXTURES);
+  return () => new Promise<void>((r) => server.close(() => r()));
+}
+
+/** ה-Worker המקומי צריך להפנות את Google Drive לשרת המדומה (ראו .dev.vars.example) */
+function checkDevVars() {
+  const vars = existsSync('.dev.vars') ? readFileSync('.dev.vars', 'utf8') : '';
+  const need = [`GOOGLE_DRIVE_API_KEY=${MOCK_KEY}`, `DRIVE_API_BASE=http://localhost:${DRIVE_MOCK_PORT}`, `DRIVE_IMAGE_BASE=http://localhost:${DRIVE_MOCK_PORT}`];
+  const missing = need.filter((l) => !vars.includes(l));
+  if (missing.length) throw new Error(`.dev.vars חסר שורות לבדיקות Google Drive:\n${missing.join('\n')}\n(הוסיפו אותן והפעילו מחדש את שרת הפיתוח)`);
 }

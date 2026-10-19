@@ -7,6 +7,7 @@ import { UsersSection, InvitesSection } from './People';
 import { ContentSection, TagsSection, ActivitySection } from './Content';
 import { HeroSection, HomePhotosSection, SiteSection } from './Site';
 import { BackupsSection, ExportSection, ThumbsSection } from './Data';
+import { DriveSection } from './Drive';
 
 interface Section {
   path: string;
@@ -22,6 +23,7 @@ const SECTIONS: Section[] = [
   { path: 'users', label: 'ניהול משתמשים', icon: 'users', admin: true, el: () => <UsersSection /> },
   { path: 'content', label: 'ניהול תכנים ומחיקה', icon: 'archive', admin: true, el: () => <ContentSection /> },
   { path: 'hero', label: 'התמונה הראשית', icon: 'image', admin: true, el: () => <HeroSection /> },
+  { path: 'drive', label: 'חיבור Google Drive', icon: 'link', admin: true, el: () => <DriveSection /> },
   { path: 'home-photos', label: 'תמונות לדף הבית', icon: 'photo', admin: true, el: () => <HomePhotosSection /> },
   { path: 'site', label: 'שם האתר ומסך הפתיחה', icon: 'edit', admin: true, el: () => <SiteSection /> },
   { path: 'thumbs', label: 'מהירות הגלריה', icon: 'photo', admin: true, el: () => <ThumbsSection /> },

@@ -1,6 +1,7 @@
 import { devices, expect, test, type Page } from '@playwright/test';
 import path from 'node:path';
 import { FIXTURES } from './global-setup';
+import { MOCK_FOLDER, setDriveMock } from './drive-mock';
 
 const SHOTS = path.resolve('test-results/screens');
 const SETUP_TOKEN = process.env.E2E_SETUP_TOKEN ?? 'local-dev-setup-token';
@@ -889,11 +890,17 @@ test('מסך פתיחה: זיכרונות מרחפים, לא חוסמים, וח�
     const title = document.querySelector('.landing__title')!.getBoundingClientRect();
     return Array.from(document.querySelectorAll('.mem img')).map((i) => {
       const b = i.getBoundingClientRect();
-      return inter(b, photo) / (b.width * b.height) + inter(b, cta) + inter(b, title) + Math.max(0, -b.left) + Math.max(0, b.right - innerWidth);
+      return { photo: inter(b, photo) / (b.width * b.height), cta: inter(b, cta), title: inter(b, title), edge: Math.max(0, -b.left, b.right - innerWidth) };
     });
   });
-  // (מסגרת התמונה המסובבת גדלה בסיבוב, ופינותיה שקופות — לכן סובלנות קטנה)
-  for (const o of overlap) expect(o).toBeLessThan(0.12);
+  for (const o of overlap) {
+    // (מסגרת התמונה המסובבת גדלה בסיבוב, ופינותיה שקופות — לכן סובלנות קטנה)
+    expect(o.photo).toBeLessThan(0.12);
+    expect(o.cta).toBe(0);
+    expect(o.title).toBe(0);
+    // חריגה של שבר פיקסל בקצה המסך נחתכת בלי גלילה — לא נראית
+    expect(o.edge).toBeLessThan(2);
+  }
   await noHorizontalScroll(page);
   const cta = page.getByRole('button', { name: 'כניסה לזיכרונות' });
   const box = (await cta.boundingBox())!;
@@ -911,6 +918,109 @@ test('מסך פתיחה: זיכרונות מרחפים, לא חוסמים, וח�
   await page.setViewportSize({ width: 360, height: 740 });
   await noHorizontalScroll(page);
   await shot(page, '38-landing-memories-360');
+});
+
+test('Google Drive: חיבור תיקייה, סנכרון, גלריה, תצוגה מלאה, זיכרון מסבא והעלאה דרך הדרייב', async ({ page }) => {
+  await login(page);
+  const id = (n: number) => `1E2eDrivePhoto${String(n).padStart(3, '0')}abcdefghijk`;
+  const sub = '1E2eSubFolderAbcdefghijklmno';
+  const photo = (n: number, parent = MOCK_FOLDER) => ({ id: id(n), parent, mime: 'image/jpeg', width: n % 2 ? 1200 : 900, height: n % 2 ? 900 : 1200 });
+  await setDriveMock({ fail: null, files: [photo(1), photo(2), { id: sub, parent: MOCK_FOLDER, mime: 'application/vnd.google-apps.folder' }, photo(3, sub)] });
+  const before = ((await (await page.request.get('/api/items?kind=photo&limit=1')).json()) as { total: number }).total;
+
+  await page.goto('/settings/drive');
+  await expect(page.locator('.drive-state')).toContainText('לא מחובר');
+  const input = page.getByLabel('קישור לתיקיית Google Drive');
+  // קישור לא תקין
+  await input.fill('https://example.com/folder');
+  await page.getByRole('button', { name: 'חיבור תיקייה' }).click();
+  await expect(page.getByText('אינו קישור לתיקייה')).toBeVisible();
+  // תיקייה שלא קיימת / לא משותפת
+  await input.fill('https://drive.google.com/drive/folders/1E2eMissingFolderAbcdefghij');
+  await page.getByRole('button', { name: 'חיבור תיקייה' }).click();
+  await expect(page.getByText('התיקייה לא נמצאה')).toBeVisible();
+  // התיקייה הנכונה — חיבור וסנכרון ראשון
+  await input.fill(`https://drive.google.com/drive/folders/${MOCK_FOLDER}?usp=sharing`);
+  await page.getByRole('button', { name: 'חיבור תיקייה' }).click();
+  await expect(page.locator('.drive-state')).toContainText('מחובר', { timeout: 15_000 });
+  await expect(page.getByTestId('drive-count')).toHaveText('3');
+  await page.screenshot({ path: path.join(SHOTS, '43-drive-settings.png') });
+
+  // הגלריה: תמונות הדרייב בסדר אקראי, ממוזערות דרך האתר, בלי שמות קבצים
+  await page.goto('/c/photo');
+  const add = page.getByRole('link', { name: 'הוספת תמונות לדרייב' });
+  await expect(add).toHaveAttribute('href', `https://drive.google.com/drive/folders/${MOCK_FOLDER}`);
+  await expect(add).toHaveAttribute('target', '_blank');
+  await expect(page.locator('.drive-note')).toBeVisible();
+  // טעינה הדרגתית — גוללים עד הסוף
+  const scrollAll = async (total: number) => {
+    for (let i = 0; i < 30 && (await page.locator('.photo-tile').count()) < total; i++) {
+      await page.mouse.wheel(0, 4000);
+      await page.waitForTimeout(250);
+    }
+    await expect(page.locator('.photo-tile')).toHaveCount(total);
+  };
+  await scrollAll(before + 3);
+  const driveImg = page.locator('.photo-tile img[src*="/api/files/gd:"]');
+  await expect(driveImg).toHaveCount(3);
+  for (const el of await driveImg.all()) await el.scrollIntoViewIfNeeded();
+  await expect.poll(() => driveImg.evaluateAll((els) => els.filter((e) => (e as HTMLImageElement).naturalWidth > 0).length)).toBe(3);
+  const driveTiles = page.locator('.photo-tile:has(img[src*="/api/files/gd:"])');
+  await expect(driveTiles).toHaveCount(3);
+  expect(await driveTiles.locator('.photo-tile__cap').count()).toBe(0);
+  await shot(page, '44-drive-gallery');
+  // גם אחרי רענון — הכתובות יציבות
+  await page.reload();
+  await scrollAll(before + 3);
+  for (const el of await driveImg.all()) await el.scrollIntoViewIfNeeded();
+  await expect.poll(() => driveImg.evaluateAll((els) => els.filter((e) => (e as HTMLImageElement).naturalWidth > 0).length)).toBe(3);
+
+  // תצוגה מלאה — תמונה גדולה מהדרייב
+  await page.locator('.photo-tile:has(img[src*="/api/files/gd:"]) .photo-tile__btn').first().click();
+  const full = page.locator('.lightbox .lightbox__img img').last();
+  await expect(full).toHaveAttribute('src', /\/api\/files\/gd:[^:]+$/);
+  await expect.poll(() => full.evaluate((el: HTMLImageElement) => el.naturalWidth)).toBeGreaterThan(0);
+  await expect(page.getByRole('link', { name: 'הורדת קובץ המקור' })).toHaveAttribute('href', /gd:.*download=1/);
+  await page.getByRole('button', { name: 'סגירה' }).click();
+
+  // דף ״הוספת תמונה״ — מפנה לדרייב
+  await page.goto('/c/photo/new');
+  await expect(page.getByRole('link', { name: 'הוספת תמונות לדרייב' })).toBeVisible();
+  await expect(page.locator('input[type=file]')).toHaveCount(0);
+
+  // סנכרון ידני: תמונה חדשה נוספת, תמונה שהוסרה מוסתרת
+  await setDriveMock({ files: [photo(1), { id: sub, parent: MOCK_FOLDER, mime: 'application/vnd.google-apps.folder' }, photo(3, sub), photo(4)] });
+  await page.goto('/settings/drive');
+  await page.getByRole('button', { name: 'סנכרן עכשיו' }).click();
+  await expect(page.getByText(/הסנכרון הושלם/).first()).toBeVisible();
+  await expect(page.getByTestId('drive-count')).toHaveText('3');
+  expect(((await (await page.request.get('/api/items?kind=photo&limit=1')).json()) as { total: number }).total).toBe(before + 3);
+
+  // שגיאת API — מוצגת, ושום תמונה לא נמחקת
+  await setDriveMock({ fail: 500 });
+  await page.getByRole('button', { name: 'סנכרן עכשיו' }).click();
+  await expect(page.locator('.drive-state')).toContainText('שגיאת חיבור');
+  await expect(page.getByTestId('drive-count')).toHaveText('3');
+  await setDriveMock({ fail: null });
+
+  // ״זיכרון מסבא״ — גם תמונות מהדרייב, ופתיחה בגודל מלא
+  await page.goto('/home');
+  let found = false;
+  // (3 תמונות דרייב מתוך כ-110 פריטים בארכיון הבדיקה — לכן עד 200 ניסיונות)
+  for (let i = 0; i < 200 && !found; i++) {
+    const img = page.locator('.memory__media img');
+    if (await img.count()) found = ((await img.first().getAttribute('src')) ?? '').includes('/api/files/gd:');
+    if (!found) {
+      await page.getByRole('button', { name: 'עוד זיכרון' }).click();
+      await page.waitForTimeout(120);
+    }
+  }
+  expect(found).toBe(true);
+  await expect.poll(() => page.locator('.memory__media img').first().evaluate((el: HTMLImageElement) => el.naturalWidth)).toBeGreaterThan(0);
+  await page.locator('.memory__card--button').click();
+  await expect(page.locator('.lightbox .lightbox__img img').last()).toHaveAttribute('src', /\/api\/files\/gd:/);
+  await page.getByRole('button', { name: 'סגירה' }).click();
+  await noHorizontalScroll(page);
 });
 
 test.describe('מסך פתיחה עם הפחתת תנועה', () => {
@@ -1017,5 +1127,11 @@ test.describe('Chrome באנדרואיד (אמולציה)', () => {
     await expect(page.locator('.theater__bar .theater__btn')).toHaveCount(2);
     await page.goBack();
     await expect(page.locator('.theater')).toHaveCount(0);
+
+    // תמונות מ-Google Drive נטענות גם בכרום באנדרואיד
+    await page.goto('/c/photo');
+    const driveImgs = page.locator('.photo-tile img[src*="/api/files/gd:"]');
+    await expect(driveImgs.first()).toBeVisible();
+    await expect.poll(() => driveImgs.first().evaluate((el: HTMLImageElement) => el.naturalWidth)).toBeGreaterThan(0);
   });
 });

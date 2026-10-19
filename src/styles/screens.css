@@ -2091,3 +2091,48 @@
 .memory__media--icon {
   aspect-ratio: 16 / 5;
 }
+
+/* ---------- חיבור Google Drive ---------- */
+.drive-facts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 22px;
+  margin: 0;
+}
+.drive-facts div {
+  display: grid;
+  gap: 1px;
+}
+.drive-facts dt {
+  font-size: 0.8rem;
+  color: var(--ink-faint);
+}
+.drive-facts dd {
+  margin: 0;
+  font-weight: 700;
+  color: var(--brown-deep);
+}
+.drive-error {
+  color: var(--danger);
+  font-size: 0.92rem;
+}
+.drive-msg {
+  color: var(--ok);
+  font-size: 0.92rem;
+}
+.drive-note {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin: -6px 0 16px;
+  padding: 10px 12px;
+  border-radius: var(--r-sm);
+  background: var(--gold-faint);
+  color: var(--brown-deep);
+  font-size: 0.9rem;
+}
+.drive-note svg {
+  flex: none;
+  margin-top: 2px;
+  color: var(--gold);
+}

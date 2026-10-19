@@ -10,7 +10,14 @@ export default defineConfig(async () => {
         main: './worker/index.ts',
         wrangler: { configPath: './wrangler.jsonc' },
         miniflare: {
-          bindings: { SETUP_TOKEN: 'test-setup-token-123', TEST_MIGRATIONS: migrations },
+          bindings: {
+            SETUP_TOKEN: 'test-setup-token-123',
+            TEST_MIGRATIONS: migrations,
+            // Google Drive מדומה — הבדיקות לא פונות לגוגל באמת
+            GOOGLE_DRIVE_API_KEY: 'test-drive-key',
+            DRIVE_API_BASE: 'https://drive.test',
+            DRIVE_IMAGE_BASE: 'https://img.test',
+          },
           r2Buckets: ['MEDIA', 'BACKUP'],
         },
       }),

@@ -2,6 +2,8 @@ import type { HeroTraits, HomePhoto, HomePhotoSetting, SiteSettings } from '../.
 import { placeholders } from './http';
 import { DEFAULT_SITE_TITLE, DEFAULT_SUBTITLE } from '../../shared/constants';
 import { now } from './http';
+import { publicDriveFolderUrl } from './drive';
+import { driveVirtualId } from '../../shared/drive';
 
 const DEFAULTS: Record<string, string> = {
   site_title: DEFAULT_SITE_TITLE,
@@ -62,7 +64,13 @@ async function resolveHomePhotos(db: D1Database, list: HomePhotoSetting[], heroF
     )
     .bind(...ids)
     .all<{ item_id: string; file_id: string; role: string }>();
+  // תמונות מ-Google Drive — ״קבצים וירטואליים״ (הקובץ נשאר בדרייב)
+  const drive = await db
+    .prepare(`SELECT d.item_id, d.file_id FROM drive_photos d JOIN items i ON i.id = d.item_id WHERE d.item_id IN (${placeholders(ids.length)}) AND i.deleted_at IS NULL`)
+    .bind(...ids)
+    .all<{ item_id: string; file_id: string }>();
   const byItem = new Map<string, { original?: string; thumb?: string }>();
+  for (const r of drive.results) byItem.set(r.item_id, { original: driveVirtualId(r.file_id, 'original'), thumb: driveVirtualId(r.file_id, 'thumb') });
   for (const r of rows.results) {
     const e = byItem.get(r.item_id) ?? {};
     if (r.role === 'original') e.original = r.file_id;
@@ -85,5 +93,6 @@ export async function getSiteSettings(db: D1Database): Promise<SiteSettings> {
     heroFileId: map.hero_file_id || null,
     heroTraits: parseTraits(map.hero_traits),
     homePhotos: await resolveHomePhotos(db, parseHomePhotos(map.home_photos).slice(0, 100), map.hero_file_id),
+    driveFolderUrl: await publicDriveFolderUrl(db),
   };
 }

@@ -1,6 +1,6 @@
 import type {
   AdminUser, ArchiveStats, AuthStatus, BackupStatus, FileInfo, InviteInfo, ItemDetail, ItemKind, ItemSummary,
-  SearchResults, SiteSettings, TagInfo, HeroTraits, HomePhotoSetting,
+  SearchResults, SiteSettings, TagInfo, HeroTraits, HomePhotoSetting, DriveStatus,
 } from '../../shared/types';
 import { DIRECT_UPLOAD_MAX } from '../../shared/constants';
 
@@ -59,6 +59,16 @@ export interface ListParams {
   deleted?: boolean;
 }
 
+export interface DriveSyncResult {
+  ok: boolean;
+  message: string;
+  added: number;
+  removed: number;
+  restored: number;
+  pending: number;
+  total: number;
+}
+
 export interface NewItem {
   kind: ItemKind;
   title: string;
@@ -105,6 +115,9 @@ export const api = {
   attachable: (kind?: ItemKind) => get<ItemSummary[]>(`/attachable${qs({ kind })}`),
 
   admin: {
+    drive: () => get<DriveStatus>('/admin/drive'),
+    connectDrive: (url: string) => put<{ sync: DriveSyncResult; status: DriveStatus }>('/admin/drive', { url }),
+    syncDrive: () => post<{ sync: DriveSyncResult; status: DriveStatus }>('/admin/drive/sync'),
     users: () => get<AdminUser[]>('/admin/users'),
     updateUser: (id: string, b: { role?: string; disabled?: boolean }) => patch(`/admin/users/${id}`, b),
     resetLink: (id: string) => post<{ url: string; expiresInDays: number }>(`/admin/users/${id}/reset-link`),

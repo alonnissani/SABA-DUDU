@@ -46,7 +46,7 @@ function CategoryList({ kind }: { kind: ItemKind }) {
   const [error, setError] = useState<string | null>(null);
   const [open, setOpen] = useState<number | null>(null);
   const facets = useLoad(() => api.facets(kind), [kind]);
-  const { isAdmin } = useApp();
+  const { isAdmin, settings } = useApp();
   const toast = useToast();
   const [confirmDelete, setConfirmDelete] = useState<ItemSummary | null>(null);
   const [theater, setTheater] = useState<ItemSummary | null>(null);
@@ -145,6 +145,20 @@ function CategoryList({ kind }: { kind: ItemKind }) {
   const filtered = Boolean(tag || decade || storyType);
   const label = KIND_LABELS[kind];
   const addLabel = kind === 'story' ? 'סיפור חדש' : `הוספת ${label.singular}`;
+  // תמונות מועלות דרך תיקיית Google Drive המשפחתית (כשהחיבור פעיל)
+  const driveUrl = kind === 'photo' ? settings.driveFolderUrl : null;
+  const addButton = (text: string) =>
+    driveUrl ? (
+      <a href={driveUrl} target="_blank" rel="noopener noreferrer" className="btn btn--primary">
+        <Icon name="upload" />
+        הוספת תמונות לדרייב
+      </a>
+    ) : (
+      <Link to={`/c/${kind}/new`} className="btn btn--primary">
+        <Icon name="plus" />
+        {text}
+      </Link>
+    );
 
   return (
     <div className={`category category--${kind}`}>
@@ -152,13 +166,14 @@ function CategoryList({ kind }: { kind: ItemKind }) {
         title={label.plural}
         icon={KIND_ICON[kind]}
         subtitle={loading ? undefined : total ? `${total} ${total === 1 ? label.singular : label.plural}` : undefined}
-        actions={
-          <Link to={`/c/${kind}/new`} className="btn btn--primary">
-            <Icon name="plus" />
-            {addLabel}
-          </Link>
-        }
+        actions={addButton(addLabel)}
       />
+      {driveUrl && (
+        <p className="drive-note">
+          <Icon name="photo" size={18} />
+          <span>מעלים תמונות לתיקייה המשפחתית ב-Google Drive, והן מופיעות כאן אוטומטית בסנכרון הבא (עד שעה). ההעלאה לדרייב לפי ההרשאות שלכם ב-Google.</span>
+        </p>
+      )}
 
       {(total > 0 || filtered) && (
         <div className={`filters ${kind === 'story' ? 'filters--compact' : ''}`} role="group" aria-label="מיון וסינון">
@@ -231,12 +246,7 @@ function CategoryList({ kind }: { kind: ItemKind }) {
             icon={KIND_ICON[kind]}
             title={EMPTY_TEXT[kind].title}
             text={EMPTY_TEXT[kind].text}
-            action={
-              <Link to={`/c/${kind}/new`} className="btn btn--primary">
-                <Icon name="plus" />
-                {EMPTY_TEXT[kind].cta}
-              </Link>
-            }
+            action={addButton(EMPTY_TEXT[kind].cta)}
           />
         )
       ) : (

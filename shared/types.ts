@@ -98,6 +98,22 @@ export interface SiteSettings {
   heroFileId: string | null;
   heroTraits: HeroTraits;
   homePhotos: HomePhoto[];
+  /** קישור תיקיית Google Drive המשפחתית (רק כשהחיבור פעיל) — לכפתור ״הוספת תמונות לדרייב״ */
+  driveFolderUrl: string | null;
+}
+
+/** מצב החיבור לתיקיית Google Drive — למנהל בלבד */
+export interface DriveStatus {
+  state: 'disconnected' | 'ok' | 'error';
+  apiKeyConfigured: boolean;
+  folder: { url: string; name: string; connectedAt: number } | null;
+  lastSyncAt: number | null;
+  lastAttemptAt: number | null;
+  lastError: string | null;
+  photoCount: number;
+  added: number;
+  removed: number;
+  pending: number;
 }
 
 export interface AuthStatus {

@@ -16,7 +16,7 @@ declare global {
 await applyD1Migrations(env.DB, env.TEST_MIGRATIONS);
 
 const TABLES = [
-  'search_index', 'external_media', 'item_links', 'item_tags', 'comments', 'transcripts', 'files', 'uploads', 'items', 'tags',
+  'search_index', 'external_media', 'drive_photos', 'item_links', 'item_tags', 'comments', 'transcripts', 'files', 'uploads', 'items', 'tags',
   'password_resets', 'invites', 'sessions', 'login_attempts', 'settings', 'audit_log', 'backup_runs', 'users',
 ];
 

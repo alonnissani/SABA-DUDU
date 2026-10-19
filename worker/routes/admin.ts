@@ -255,7 +255,7 @@ adminRoutes.get('/stats', async (c) => {
 adminRoutes.get('/export', async (c) => {
   const admin = requireAdmin(c);
   const db = c.env.DB;
-  const [items, files, tags, itemTags, comments, links, users, settings, external] = await db.batch([
+  const [items, files, tags, itemTags, comments, links, users, settings, external, drivePhotos] = await db.batch([
     db.prepare('SELECT * FROM items ORDER BY created_at'),
     db.prepare('SELECT id, item_id, role, r2_key, mime, size, sha256, original_name, width, height, duration, created_by, created_at FROM files ORDER BY created_at'),
     db.prepare('SELECT * FROM tags'),
@@ -265,6 +265,7 @@ adminRoutes.get('/export', async (c) => {
     db.prepare('SELECT id, name, email, role, created_at, disabled_at FROM users'),
     db.prepare('SELECT key, value FROM settings'),
     db.prepare('SELECT * FROM external_media'),
+    db.prepare('SELECT * FROM drive_photos'),
   ]);
   const origin = new URL(c.req.url).origin;
   await audit(db, admin.id, 'archive.export', null, null);
@@ -281,6 +282,8 @@ adminRoutes.get('/export', async (c) => {
     users: users.results,
     settings: settings.results,
     externalMedia: external.results,
+    // תמונות מ-Google Drive: רק המזהים — הקבצים עצמם נמצאים בתיקייה המשפחתית בדרייב
+    drivePhotos: drivePhotos.results,
   };
   return new Response(JSON.stringify(manifest, null, 2), {
     headers: {

@@ -3,7 +3,7 @@ import { Link, Navigate, useNavigate, useParams } from 'react-router';
 import type { ItemKind, ItemSummary, StoryType } from '../../shared/types';
 import { ACCEPT_ATTR, ITEM_KINDS, KIND_LABELS, STORY_TYPES, formatBytes } from '../../shared/constants';
 import { api } from '../api/client';
-import { useLoad, useToast } from '../state';
+import { useApp, useLoad, useToast } from '../state';
 import { ErrorBox, Field, Modal, PageHeader, ProgressBar, Spinner } from '../components/Common';
 import { Icon, KIND_ICON } from '../components/Icon';
 import { ItemRowCard } from '../components/ItemCards';
@@ -14,10 +14,36 @@ import { drivePreviewUrl, parseDriveFileId } from '../../shared/drive';
 
 export function AddItemScreen() {
   const { kind } = useParams();
+  const { settings } = useApp();
   if (!kind || !(ITEM_KINDS as string[]).includes(kind)) return <Navigate to="/home" replace />;
   if (kind === 'story') return <StoryForm />;
   if (kind === 'video') return <VideoForm />;
+  if (kind === 'photo' && settings.driveFolderUrl) return <DrivePhotosNotice url={settings.driveFolderUrl} />;
   return <MediaForm key={kind} kind={kind as MediaKind} />;
+}
+
+/** כשתיקיית Google Drive מחוברת — תמונות מועלות לדרייב, לא לאתר (בלי עותק כפול) */
+function DrivePhotosNotice({ url }: { url: string }) {
+  return (
+    <div className="add">
+      <PageHeader title="הוספת תמונות" icon="photo" />
+      <div className="form form--card drive-add">
+        <p>
+          התמונות של סבא נשמרות בתיקייה המשפחתית ב-Google Drive. מעלים אליה את התמונות — והן מופיעות כאן באתר אוטומטית בסנכרון הבא (עד שעה).
+        </p>
+        <p className="muted small">
+          ההעלאה מתבצעת בדרייב לפי ההרשאות שלכם ב-Google. אם אין לכם הרשאה להוסיף קבצים לתיקייה, בקשו אותה ממנהל/ת האתר.
+        </p>
+        <div className="form__actions">
+          <Link to="/c/photo" className="btn btn--ghost">חזרה</Link>
+          <a href={url} target="_blank" rel="noopener noreferrer" className="btn btn--primary btn--lg">
+            <Icon name="upload" />
+            הוספת תמונות לדרייב
+          </a>
+        </div>
+      </div>
+    </div>
+  );
 }
 
 /** אזהרה לפני יציאה מהדף באמצע העלאה */

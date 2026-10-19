@@ -11,7 +11,7 @@ import {
 } from '../lib/items';
 import { reindexItem } from '../lib/search';
 import { getSetting } from '../lib/settings';
-import { fileCache } from './files';
+import { clearFileCaches } from './files';
 
 export const itemRoutes = new Hono<AppEnv>();
 
@@ -55,7 +55,12 @@ itemRoutes.get('/items', async (c) => {
   const kind = parseKind(c.req.query('kind'), false);
   const trash = c.req.query('deleted') === '1';
   if (trash && user.role !== 'admin') fail(403, 'פעולה זו מותרת למנהל המערכת בלבד');
-  const where: string[] = [trash ? 'i.deleted_at IS NOT NULL' : 'i.deleted_at IS NULL'];
+  // בסל המחזור לא מוצגות תמונות שהוסתרו כי הוסרו מ-Google Drive (הן חוזרות לבד אם יוחזרו לדרייב)
+  const where: string[] = [
+    trash
+      ? 'i.deleted_at IS NOT NULL AND NOT EXISTS (SELECT 1 FROM drive_photos dp WHERE dp.item_id = i.id AND dp.removed_at IS NOT NULL)'
+      : 'i.deleted_at IS NULL',
+  ];
   const binds: unknown[] = [];
   if (kind) {
     where.push('i.kind = ?');
@@ -324,7 +329,7 @@ itemRoutes.delete('/items/:id', async (c) => {
     .bind(now(), admin.id, c.req.param('id'))
     .run();
   if (!res.meta.changes) fail(404, 'הפריט לא נמצא');
-  fileCache.clear();
+  clearFileCaches();
   await audit(c.env.DB, admin.id, 'item.delete', 'item', c.req.param('id'));
   return c.json({ ok: true });
 });
@@ -335,7 +340,7 @@ itemRoutes.post('/items/:id/restore', async (c) => {
     .bind(c.req.param('id'))
     .run();
   if (!res.meta.changes) fail(404, 'הפריט לא נמצא בסל המחזור');
-  fileCache.clear();
+  clearFileCaches();
   await audit(c.env.DB, admin.id, 'item.restore', 'item', c.req.param('id'));
   return c.json({ ok: true });
 });
