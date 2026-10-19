@@ -1,6 +1,6 @@
 import type { ItemDetail, ItemKind } from '../../shared/types';
 import { ALLOWED_MIME, MAX_FILE_SIZE, formatBytes, resolveMime } from '../../shared/constants';
-import { api, uploadFile, type NewItem } from '../api/client';
+import { api, uploadFile, type NewItem, type StoryImageUpload } from '../api/client';
 import { audioMeta, imageMeta, videoMeta, type MediaMeta } from './media';
 
 export type MediaKind = Exclude<ItemKind, 'story'>;
@@ -66,4 +66,24 @@ export async function uploadAsItem(
   }
   onStage('saving', 1);
   return api.create({ ...fields, kind, files });
+}
+
+/**
+ * העלאת תמונה של סיפור: הקובץ המקורי וממוזערת נשמרים עם הסיפור (R2, נתיב הסיפורים) —
+ * לא כפריט בגלריה, ולא בתיקיית הדרייב.
+ */
+export async function uploadStoryImage(file: File, onProgress?: (p: number) => void, signal?: AbortSignal): Promise<StoryImageUpload> {
+  const mime = resolveMime(file.type, file.name);
+  const meta = await imageMeta(file);
+  const original = await uploadFile(file, { kind: 'story', name: file.name, mime, signal, onProgress: (l, t) => onProgress?.(t ? l / t : 0) });
+  let thumbId: string | null = null;
+  if (meta.preview) {
+    try {
+      const t = await uploadFile(meta.preview, { kind: 'story', role: 'thumb', name: `preview.${meta.preview.type === 'image/webp' ? 'webp' : 'jpg'}`, mime: meta.preview.type, signal });
+      thumbId = t.id;
+    } catch {
+      /* ממוזערת היא תוספת */
+    }
+  }
+  return { fileId: original.id, thumbId, width: meta.width ?? null, height: meta.height ?? null };
 }

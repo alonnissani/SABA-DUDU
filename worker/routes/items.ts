@@ -12,6 +12,7 @@ import {
 import { reindexItem } from '../lib/search';
 import { getSetting } from '../lib/settings';
 import { clearFileCaches } from './files';
+import { attachStoryImages, minStoryImagePosition, parseStoryImageInputs, removeStoryImage } from '../lib/storyImages';
 
 export const itemRoutes = new Hono<AppEnv>();
 
@@ -49,6 +50,9 @@ function randomOrder(seed: number): string {
   return `${h2}, i.id`;
 }
 
+/** תמונות בגלריה — רק אלה שמגיעות מ-Google Drive */
+const GALLERY_ONLY_DRIVE = `(i.kind != 'photo' OR EXISTS (SELECT 1 FROM drive_photos dp WHERE dp.item_id = i.id))`;
+
 /** רשימת פריטים עם מיון וסינון. מנהל יכול לבקש deleted=1 כדי לראות את סל המחזור. */
 itemRoutes.get('/items', async (c) => {
   const user = requireUser(c);
@@ -61,6 +65,8 @@ itemRoutes.get('/items', async (c) => {
       ? 'i.deleted_at IS NOT NULL AND NOT EXISTS (SELECT 1 FROM drive_photos dp WHERE dp.item_id = i.id AND dp.removed_at IS NOT NULL)'
       : 'i.deleted_at IS NULL',
   ];
+  // גלריית התמונות מגיעה רק מ-Google Drive (תמונות R2 ישנות אינן מוצגות)
+  where.push(GALLERY_ONLY_DRIVE);
   const binds: unknown[] = [];
   if (kind) {
     where.push('i.kind = ?');
@@ -113,12 +119,12 @@ itemRoutes.get('/facets', async (c) => {
   const binds = kind ? [kind] : [];
   const [years, tags] = await c.env.DB.batch([
     c.env.DB.prepare(
-      `SELECT date_year AS year, COUNT(*) AS n FROM items i WHERE deleted_at IS NULL AND date_year IS NOT NULL ${kindSql}
+      `SELECT date_year AS year, COUNT(*) AS n FROM items i WHERE deleted_at IS NULL AND date_year IS NOT NULL AND ${GALLERY_ONLY_DRIVE} ${kindSql}
        GROUP BY date_year ORDER BY date_year`,
     ).bind(...binds),
     c.env.DB.prepare(
       `SELECT t.id, t.name, COUNT(i.id) AS n FROM tags t JOIN item_tags it ON it.tag_id = t.id
-       JOIN items i ON i.id = it.item_id WHERE i.deleted_at IS NULL ${kindSql}
+       JOIN items i ON i.id = it.item_id WHERE i.deleted_at IS NULL AND ${GALLERY_ONLY_DRIVE} ${kindSql}
        GROUP BY t.id ORDER BY n DESC, t.name LIMIT 100`,
     ).bind(...binds),
   ]);
@@ -147,7 +153,7 @@ interface CreateBody {
   tags?: unknown;
   files?: { id?: unknown; width?: unknown; height?: unknown; duration?: unknown }[];
   linkIds?: unknown;
-  coverPhotoId?: unknown;
+  images?: unknown;
   externalUrl?: unknown;
 }
 
@@ -164,8 +170,9 @@ itemRoutes.post('/items', async (c) => {
   const user = requireUser(c);
   const b = await readJson<CreateBody>(c.req.raw);
   const kind = parseKind(b.kind, true);
-  // לתמונות הכותרת אינה חובה — תמונה בלי כותרת מוצגת בלי כותרת
-  const title = str(b.title, 200, 'כותרת', kind !== 'photo') ?? '';
+  // גלריית התמונות מגיעה רק מ-Google Drive; תמונות של סיפורים מועלות עם הסיפור עצמו
+  if (kind === 'photo') fail(400, 'תמונות לגלריה מגיעות מתיקיית Google Drive המשפחתית — העלו אותן לשם.');
+  const title = str(b.title, 200, 'כותרת', true) ?? '';
   const description = str(b.description, 4000, 'תיאור');
   const body = kind === 'story' ? str(b.body, 50000, 'תוכן הסיפור', true) : null;
   const storyType = kind === 'story' ? parseStoryType(b.storyType) : null;
@@ -204,7 +211,8 @@ itemRoutes.post('/items', async (c) => {
     linkIds = [...new Set(b.linkIds.filter((x): x is string => typeof x === 'string'))].slice(0, 30);
     if (linkIds.length) {
       const found = await db
-        .prepare(`SELECT id FROM items WHERE id IN (${placeholders(linkIds.length)}) AND deleted_at IS NULL AND kind != 'story'`)
+        // תמונות לא מצורפות כפריטי גלריה — לסיפור יש תמונות משלו (images)
+        .prepare(`SELECT id FROM items WHERE id IN (${placeholders(linkIds.length)}) AND deleted_at IS NULL AND kind NOT IN ('story', 'photo')`)
         .bind(...linkIds)
         .all<{ id: string }>();
       const ok = new Set(found.results.map((r) => r.id));
@@ -212,6 +220,7 @@ itemRoutes.post('/items', async (c) => {
     }
   }
 
+  const images = kind === 'story' ? await parseStoryImageInputs(db, user.id, b.images) : [];
   const id = newId();
   const t = now();
   const tagIds = await ensureTags(db, tags);
@@ -232,6 +241,7 @@ itemRoutes.post('/items', async (c) => {
     ),
     ...tagIds.map((tagId) => db.prepare('INSERT OR IGNORE INTO item_tags (item_id, tag_id) VALUES (?, ?)').bind(id, tagId)),
     ...linkIds.map((linkId, i) => db.prepare('INSERT INTO item_links (story_id, item_id, position) VALUES (?, ?, ?)').bind(id, linkId, i)),
+    ...attachStoryImages(db, id, user.id, images),
   ];
   if (external) {
     stmts.push(
@@ -247,38 +257,6 @@ itemRoutes.post('/items', async (c) => {
   const row = (await getItemRow(db, id))!;
   return c.json(await getItemDetail(db, row, false), 201);
 });
-
-/**
- * תמונת הסיפור (התמונה הראשונה שצורפה אליו): הוספה, החלפה (מזהה תמונה) או הסרה (null).
- * ההסרה רק מנתקת את התמונה מהסיפור — התמונה עצמה נשארת באלבום. שאר הצירופים לא משתנים.
- */
-async function coverPhotoStatements(db: D1Database, row: { id: string; kind: string }, value: unknown): Promise<D1PreparedStatement[]> {
-  if (row.kind !== 'story') fail(400, 'אפשר לצרף תמונה רק לסיפור');
-  const current = await db
-    .prepare(
-      `SELECT l.item_id, l.position FROM item_links l JOIN items p ON p.id = l.item_id
-       WHERE l.story_id = ? AND p.kind = 'photo' AND p.deleted_at IS NULL ORDER BY l.position, p.id LIMIT 1`,
-    )
-    .bind(row.id)
-    .first<{ item_id: string; position: number }>();
-  if (value === null) {
-    return current ? [db.prepare('DELETE FROM item_links WHERE story_id = ? AND item_id = ?').bind(row.id, current.item_id)] : [];
-  }
-  if (typeof value !== 'string') fail(400, 'תמונה לא תקינה');
-  const photo = await db.prepare("SELECT id FROM items WHERE id = ? AND kind = 'photo' AND deleted_at IS NULL").bind(value).first();
-  if (!photo) fail(400, 'התמונה לא נמצאה באלבום');
-  if (current?.item_id === value) return [];
-  const min = await db.prepare('SELECT MIN(position) AS m FROM item_links WHERE story_id = ?').bind(row.id).first<{ m: number | null }>();
-  const stmts: D1PreparedStatement[] = [];
-  if (current) stmts.push(db.prepare('DELETE FROM item_links WHERE story_id = ? AND item_id = ?').bind(row.id, current.item_id));
-  // התמונה החדשה נכנסת ראשונה — וכך היא תמונת הסיפור
-  stmts.push(
-    db
-      .prepare('INSERT INTO item_links (story_id, item_id, position) VALUES (?, ?, ?) ON CONFLICT(story_id, item_id) DO UPDATE SET position = excluded.position')
-      .bind(row.id, value, (min?.m ?? 0) - 1),
-  );
-  return stmts;
-}
 
 /** עריכת פריט — מנהל בלבד. */
 itemRoutes.patch('/items/:id', async (c) => {
@@ -310,7 +288,6 @@ itemRoutes.patch('/items/:id', async (c) => {
     const ext = parseExternalUrl(b.externalUrl);
     stmts.push(db.prepare('UPDATE external_media SET file_id = ?, url = ?, updated_at = ? WHERE item_id = ?').bind(ext.fileId, ext.url, now(), row.id));
   }
-  if ('coverPhotoId' in b) stmts.push(...(await coverPhotoStatements(db, row, b.coverPhotoId)));
   if ('tags' in b) {
     const tagIds = await ensureTags(db, parseTags(b.tags));
     stmts.push(db.prepare('DELETE FROM item_tags WHERE item_id = ?').bind(row.id));
@@ -382,22 +359,47 @@ itemRoutes.get('/random', async (c) => {
   requireUser(c);
   const db = c.env.DB;
   const exclude = (c.req.query('exclude') ?? '').split(',').filter((x) => /^[0-9a-f-]{36}$/.test(x)).slice(0, 50);
-  const totalRow = await db.prepare('SELECT COUNT(*) AS n FROM items WHERE deleted_at IS NULL').first<{ n: number }>();
+  // ״זיכרון מסבא״ — רק תמונות מגלריית Google Drive (לא מוסתרות), מהרשימה שב-D1
+  const pool = `i.deleted_at IS NULL AND i.kind = 'photo' AND EXISTS (SELECT 1 FROM drive_photos dp WHERE dp.item_id = i.id)`;
+  const totalRow = await db.prepare(`SELECT COUNT(*) AS n FROM items i WHERE ${pool}`).first<{ n: number }>();
   const total = totalRow?.n ?? 0;
   if (!total) return c.json({ item: null, total: 0 });
   const pick = async (ex: string[]) =>
     db
-      .prepare(
-        `${ITEM_SELECT} WHERE i.deleted_at IS NULL ${ex.length ? `AND i.id NOT IN (${placeholders(ex.length)})` : ''}
-         ORDER BY RANDOM() LIMIT 1`,
-      )
+      .prepare(`${ITEM_SELECT} WHERE ${pool} ${ex.length ? `AND i.id NOT IN (${placeholders(ex.length)})` : ''} ORDER BY RANDOM() LIMIT 1`)
       .bind(...ex)
       .first<ItemRow>();
-  // אם כל הפריטים כבר הוצגו — מתחילים סבב חדש, אבל לא מחזירים את האחרון שהוצג
+  // אם כל התמונות כבר הוצגו — מתחילים סבב חדש, אבל לא מחזירים את האחרונה שהוצגה
   let row = await pick(exclude);
   if (!row && exclude.length) row = await pick(total > 1 ? exclude.slice(-1) : []);
   const [item] = row ? await toSummaries(db, [row]) : [null];
   return c.json({ item, total });
+});
+
+/** הוספת תמונה לסיפור קיים (מנהל) — נכנסת ראשונה, כלומר הופכת לתמונת הסיפור */
+itemRoutes.post('/items/:id/images', async (c) => {
+  const admin = requireAdmin(c);
+  const db = c.env.DB;
+  const row = await getItemRow(db, c.req.param('id'));
+  if (!row || row.kind !== 'story') fail(404, 'הסיפור לא נמצא');
+  const b = await readJson(c.req.raw);
+  const images = await parseStoryImageInputs(db, admin.id, [b], 1);
+  if (!images.length) fail(400, 'לא נבחרה תמונה');
+  await db.batch(attachStoryImages(db, row.id, admin.id, images, (await minStoryImagePosition(db, row.id)) - 1));
+  await audit(db, admin.id, 'story.image.add', 'item', row.id);
+  return c.json(await getItemDetail(db, (await getItemRow(db, row.id))!, true));
+});
+
+/** הסרת תמונה מסיפור (מנהל) — רק התמונה של הסיפור; הגלריה לא מושפעת */
+itemRoutes.delete('/items/:id/images/:imageId', async (c) => {
+  const admin = requireAdmin(c);
+  const db = c.env.DB;
+  const row = await getItemRow(db, c.req.param('id'));
+  if (!row || row.kind !== 'story') fail(404, 'הסיפור לא נמצא');
+  await removeStoryImage(db, c.env.MEDIA, row.id, c.req.param('imageId'));
+  clearFileCaches();
+  await audit(db, admin.id, 'story.image.remove', 'item', row.id);
+  return c.json(await getItemDetail(db, (await getItemRow(db, row.id))!, true));
 });
 
 itemRoutes.get('/tags', async (c) => {
@@ -414,7 +416,7 @@ itemRoutes.get('/attachable', async (c) => {
   requireUser(c);
   const kind = parseKind(c.req.query('kind'), false);
   const res = await c.env.DB.prepare(
-    `${ITEM_SELECT} WHERE i.deleted_at IS NULL AND i.kind != 'story' ${kind ? 'AND i.kind = ?' : ''}
+    `${ITEM_SELECT} WHERE i.deleted_at IS NULL AND i.kind NOT IN ('story', 'photo') ${kind ? 'AND i.kind = ?' : ''}
      ORDER BY i.created_at DESC LIMIT 60`,
   )
     .bind(...(kind ? [kind] : []))

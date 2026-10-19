@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { env } from 'cloudflare:test';
-import { Client, MP3, MP4_HEAD, PDF, PNG, createMedia, inviteMember, setupAdmin, upload } from './helpers';
+import { Client, MP3, MP4_HEAD, PDF, PNG, createMedia, drivePhoto, inviteMember, setupAdmin, storyImageUpload, upload } from './helpers';
+import { reindexItem } from '../../worker/lib/search';
 
 describe('הקמה, התחברות והזמנות', () => {
   it('דורש SETUP_TOKEN נכון ומאפשר הקמה פעם אחת בלבד', async () => {
@@ -197,7 +198,10 @@ describe('חיפוש', () => {
   it('״יום הולדת״ מוצא פריטים בכל הקטגוריות, כולל תחיליות, ניקוד ותגיות', async () => {
     const admin = await setupAdmin();
     const member = await inviteMember(admin);
-    await createMedia(member, 'photo', PNG, 'p.png', 'image/png', { title: 'ביום ההולדת ה-80 של סבא' });
+    const dp = await drivePhoto(member, { title: 'ביום ההולדת ה-80 של סבא' });
+    await reindexItem(env.DB, dp.id);
+    // תמונת גלריה ישנה (R2) — לא מוצגת יותר בחיפוש
+    await createMedia(member, 'photo', PNG, 'old.png', 'image/png', { title: 'יום הולדת ישן' });
     await createMedia(member, 'audio', MP3, 'a.mp3', 'audio/mpeg', { title: 'ברכה', description: 'סבא שר ביום־הולדת' });
     await createMedia(member, 'document', PDF, 'd.pdf', 'application/pdf', { title: 'הזמנה', tags: ['יום הולדת'] });
     await member.post('/api/items', { kind: 'story', title: 'מסיבה', body: 'ביוֹם הוּלֶדֶת אחד סבא הפתיע את כולם', storyType: 'family' });
@@ -232,11 +236,14 @@ describe('זיכרון אקראי', () => {
   it('מחזיר null בארכיון ריק, ונמנע מחזרה על פריטים שהוצגו', async () => {
     const admin = await setupAdmin();
     expect(await (await admin.get('/api/random')).json()).toEqual({ item: null, total: 0 });
+    // ״זיכרון מסבא״ — רק תמונות מגלריית הדרייב: לא סיפורים, לא תמונות ישנות ולא תמונות של סיפורים
+    await admin.post('/api/items', { kind: 'story', title: 'סיפור', body: 'x', storyType: 'family' });
+    await createMedia(admin, 'photo', PNG, 'old.png', 'image/png');
+    expect(((await (await admin.get('/api/random')).json()) as { total: number }).total).toBe(0);
     const ids: string[] = [];
-    for (let i = 0; i < 3; i++) {
-      const r = (await (await admin.post('/api/items', { kind: 'story', title: `ס${i}`, body: 'x', storyType: 'family' })).json()) as { id: string };
-      ids.push(r.id);
-    }
+    for (let i = 0; i < 3; i++) ids.push((await drivePhoto(admin)).id);
+    const hidden = await drivePhoto(admin);
+    expect((await admin.del(`/api/items/${hidden.id}`)).status).toBe(200);
     const seen: string[] = [];
     for (let i = 0; i < 3; i++) {
       const r = (await (await admin.get(`/api/random?exclude=${seen.join(',')}`)).json()) as { item: { id: string } };
@@ -254,15 +261,17 @@ describe('סיפורים, הגדרות וגיבוי', () => {
   it('סיפור עם פריטים מצורפים ותגובות ״גם אני זוכר״', async () => {
     const admin = await setupAdmin();
     const member = await inviteMember(admin);
-    const photo = await createMedia(member, 'photo', PNG, 'p.png', 'image/png');
+    const audio = await createMedia(member, 'audio', MP3, 'a.mp3', 'audio/mpeg');
+    // תמונת גלריה לא מצורפת לסיפור (תמונות הסיפור נפרדות) — מסוננת
+    const galleryPhoto = await drivePhoto(admin);
     const story = (await (await member.post('/api/items', {
-      kind: 'story', title: 'בדיחה', body: 'סבא אמר...', storyType: 'joke', linkIds: [photo.id], tags: ['בדיחות'],
+      kind: 'story', title: 'בדיחה', body: 'סבא אמר...', storyType: 'joke', linkIds: [audio.id, galleryPhoto.id], tags: ['בדיחות'],
     })).json()) as { id: string };
     await member.post(`/api/items/${story.id}/comments`, { body: 'וגם צחקנו!', kind: 'memory' });
     const detail = (await (await admin.get(`/api/items/${story.id}`)).json()) as {
       links: { id: string }[]; comments: { kind: string; createdBy: { name: string } }[]; storyType: string; tags: string[];
     };
-    expect(detail.links.map((l) => l.id)).toEqual([photo.id]);
+    expect(detail.links.map((l) => l.id)).toEqual([audio.id]);
     expect(detail.comments[0]).toMatchObject({ kind: 'memory', createdBy: { name: 'בן משפחה' } });
     expect(detail.storyType).toBe('joke');
     expect(detail.tags).toEqual(['בדיחות']);
@@ -377,60 +386,59 @@ describe('סרטון מקישור Google Drive', () => {
 });
 
 describe('כותרות תמונות', () => {
-  it('תמונה ללא כותרת נשמרת עם כותרת ריקה; לסוגים אחרים הכותרת חובה', async () => {
+  it('תמונות לגלריה לא מועלות דרך האתר (רק מ-Google Drive); לסוגים אחרים הכותרת חובה', async () => {
     const admin = await setupAdmin();
     const up = (await (await upload(admin, 'photo', PNG, 'IMG_8813.png', 'image/png')).json()) as { id: string };
     const res = await admin.post('/api/items', { kind: 'photo', files: [{ id: up.id }] });
-    expect(res.status).toBe(201);
-    expect(((await res.json()) as { title: string }).title).toBe('');
+    expect(res.status).toBe(400);
+    expect(((await res.json()) as { error: string }).error).toContain('Google Drive');
     expect((await admin.post('/api/items', { kind: 'story', body: 'x', storyType: 'family' })).status).toBe(400);
   });
 });
 
-describe('תמונת סיפור', () => {
-  it('הוספה, החלפה והסרה; מופיעה בכרטיס; רק מנהל ורק תמונה', async () => {
+describe('תמונות של סיפורים — נפרדות מהגלריה', () => {
+  it('תמונה שמועלית לסיפור שמורה עם הסיפור בלבד; הוספה, החלפה והסרה בעריכה; הגלריה לא מושפעת', async () => {
     const admin = await setupAdmin();
     const member = await inviteMember(admin);
-    const p1 = await createMedia(admin, 'photo', PNG, 'a.png', 'image/png');
-    const p2 = await createMedia(admin, 'photo', PNG, 'b.png', 'image/png');
-    const audio = await createMedia(admin, 'audio', MP3, 'c.mp3', 'audio/mpeg');
-    const story = (await (await admin.post('/api/items', { kind: 'story', title: 'סיפור', body: 'תוכן', storyType: 'family', linkIds: [audio.id] })).json()) as { id: string };
-    const cover = async () =>
-      ((await (await admin.get('/api/items?kind=story')).json()) as { items: { id: string; coverFileId: string | null }[] }).items.find((i) => i.id === story.id)!.coverFileId;
-    expect(await cover()).toBeNull();
-    expect((await admin.patch(`/api/items/${story.id}`, { coverPhotoId: p1.id })).status).toBe(200);
-    const c1 = await cover();
-    expect(c1).not.toBeNull();
-    expect((await admin.patch(`/api/items/${story.id}`, { coverPhotoId: p2.id })).status).toBe(200);
-    const c2 = await cover();
-    expect(c2).not.toBe(c1);
-    // ההחלפה לא נוגעת בשאר הצירופים
-    const detail = (await (await admin.get(`/api/items/${story.id}`)).json()) as { links: { id: string }[]; title: string };
-    expect(detail.links.map((l) => l.id).sort()).toEqual([audio.id, p2.id].sort());
-    expect((await admin.patch(`/api/items/${story.id}`, { coverPhotoId: null })).status).toBe(200);
-    expect(await cover()).toBeNull();
-    const after = (await (await admin.get(`/api/items/${story.id}`)).json()) as { links: { id: string }[]; title: string; body: string };
-    expect(after.links.map((l) => l.id)).toEqual([audio.id]);
-    expect(after.title).toBe('סיפור');
-    expect(after.body).toBe('תוכן');
-    // התמונות עצמן נשארות באלבום
-    expect(((await (await admin.get('/api/items?kind=photo')).json()) as { total: number }).total).toBe(2);
-    expect((await admin.patch(`/api/items/${story.id}`, { coverPhotoId: audio.id })).status).toBe(400);
-    expect((await admin.patch(`/api/items/${p1.id}`, { coverPhotoId: p2.id })).status).toBe(400);
-    expect((await member.patch(`/api/items/${story.id}`, { coverPhotoId: p1.id })).status).toBe(403);
-  });
-});
+    const gallery = await drivePhoto(admin);
+    // העלאה לסיפור — בנתיב הסיפורים ב-R2
+    const img = await storyImageUpload(member);
+    const thumb = (await (await upload(member, 'story', PNG, 'preview.png', 'image/png', 'thumb')).json()) as { id: string };
+    const key = await env.DB.prepare('SELECT r2_key FROM files WHERE id = ?').bind(img.id).first<{ r2_key: string }>();
+    expect(key?.r2_key.startsWith('stories/')).toBe(true);
+    const created = await member.post('/api/items', { kind: 'story', title: 'סיפור עם תמונה', body: 'תוכן', storyType: 'family', images: [{ fileId: img.id, thumbId: thumb.id, width: 40, height: 30 }] });
+    expect(created.status).toBe(201);
+    const story = (await created.json()) as { id: string; coverFileId: string; files: unknown[]; storyImages: { id: string; fileId: string }[] };
+    expect(story.coverFileId).toBe(thumb.id);
+    expect(story.files).toEqual([]);
+    expect(story.storyImages.map((i) => i.fileId)).toEqual([img.id]);
+    // לא בגלריה ולא ב״זיכרון מסבא״
+    const photos = (await (await member.get('/api/items?kind=photo&limit=50')).json()) as { items: { id: string }[] };
+    expect(photos.items.map((i) => i.id)).toEqual([gallery.id]);
+    for (let i = 0; i < 5; i++) expect(((await (await member.get('/api/random')).json()) as { item: { id: string } }).item.id).toBe(gallery.id);
+    // הקובץ פתוח לבני המשפחה
+    expect((await member.get(`/api/files/${img.id}`)).status).toBe(200);
+    // קובץ שכבר שויך / קובץ מחוץ לנתיב הסיפורים — נדחים
+    expect((await member.post('/api/items', { kind: 'story', title: 'x', body: 'x', storyType: 'family', images: [{ fileId: img.id }] })).status).toBe(400);
+    const galleryUpload = (await (await upload(member, 'photo', PNG, 'g.png', 'image/png')).json()) as { id: string };
+    expect((await member.post('/api/items', { kind: 'story', title: 'x', body: 'x', storyType: 'family', images: [{ fileId: galleryUpload.id }] })).status).toBe(400);
 
-describe('תמונת ברירת המחדל של מסמכים', () => {
-  it('מוגשת רק למשתמשים מחוברים', async () => {
-    const admin = await setupAdmin();
-    const res = await admin.get('/api/assets/document-cover');
-    expect(res.status).toBe(200);
-    expect(res.headers.get('content-type')).toBe('image/webp');
-    expect(res.headers.get('cache-control')).toContain('private');
-    const bytes = new Uint8Array(await res.arrayBuffer());
-    expect(String.fromCharCode(...bytes.slice(0, 4))).toBe('RIFF');
-    expect((await new Client().get('/api/assets/document-cover')).status).toBe(401);
+    // עריכה (מנהל): הוספה כתמונה ראשונה, והסרה
+    const second = await storyImageUpload(admin);
+    expect((await member.post(`/api/items/${story.id}/images`, { fileId: second.id })).status).toBe(403);
+    const added = (await (await admin.post(`/api/items/${story.id}/images`, { fileId: second.id })).json()) as { coverFileId: string; storyImages: { id: string; fileId: string }[] };
+    expect(added.coverFileId).toBe(second.id);
+    expect(added.storyImages.map((i) => i.fileId)).toEqual([second.id, img.id]);
+    const removed = (await (await admin.del(`/api/items/${story.id}/images/${added.storyImages[1].id}`)).json()) as { storyImages: { fileId: string }[] };
+    expect(removed.storyImages.map((i) => i.fileId)).toEqual([second.id]);
+    expect(await env.DB.prepare('SELECT 1 FROM files WHERE id = ?').bind(img.id).first()).toBeNull();
+    expect(await env.MEDIA.head(key!.r2_key)).toBeNull();
+
+    // מחיקת תמונה מהגלריה לא נוגעת בסיפור
+    await admin.del(`/api/items/${gallery.id}`);
+    const after = (await (await member.get(`/api/items/${story.id}`)).json()) as { storyImages: unknown[]; coverFileId: string };
+    expect(after.storyImages).toHaveLength(1);
+    expect(after.coverFileId).toBe(second.id);
   });
 });
 
@@ -438,7 +446,9 @@ describe('סדר אקראי בגלריה', () => {
   it('אותו seed — סדר יציב בין עמודים בלי כפילויות או חוסרים; seed אחר — סדר אחר', async () => {
     const admin = await setupAdmin();
     const ids: string[] = [];
-    for (let i = 0; i < 45; i++) ids.push((await createMedia(admin, 'photo', PNG, `p${i}.png`, 'image/png', { title: `ת${i}` })).id);
+    for (let i = 0; i < 45; i++) ids.push((await drivePhoto(admin, { title: `ת${i}` })).id);
+    // תמונות ישנות שהועלו לאתר לא מופיעות בגלריה
+    await createMedia(admin, 'photo', PNG, 'old.png', 'image/png');
     const page = async (seed: number, offset: number) =>
       ((await (await admin.get(`/api/items?kind=photo&sort=random&seed=${seed}&limit=20&offset=${offset}`)).json()) as { items: { id: string }[]; total: number });
     const all = async (seed: number) => {

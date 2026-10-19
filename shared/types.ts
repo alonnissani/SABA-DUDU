@@ -49,10 +49,20 @@ export interface ItemSummary {
   createdBy: PublicUser;
   files: FileInfo[];
   externalVideo: ExternalVideo | null;
-  /** לסיפור: תמונה ממוזערת של התמונה הראשונה שצורפה אליו (אם יש) */
+  /** לסיפור: תמונה ממוזערת של תמונת הסיפור הראשונה (אם יש) */
   coverFileId: string | null;
   commentCount: number;
   deletedAt: number | null;
+}
+
+/** תמונה של סיפור — נשמרת עם הסיפור (R2), לא חלק מגלריית התמונות */
+export interface StoryImage {
+  id: string;
+  fileId: string;
+  thumbId: string | null;
+  width: number | null;
+  height: number | null;
+  mime: string;
 }
 
 export interface CommentInfo {
@@ -69,6 +79,8 @@ export interface ItemDetail extends ItemSummary {
   body: string | null;
   updatedAt: number;
   links: ItemSummary[];
+  /** לסיפור: התמונות שלו, לפי הסדר (הראשונה — תמונת הסיפור) */
+  storyImages: StoryImage[];
   comments: CommentInfo[];
   transcriptStatus: TranscriptStatus;
 }

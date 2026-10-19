@@ -2136,3 +2136,12 @@
   margin-top: 2px;
   color: var(--gold);
 }
+.migration__step {
+  display: grid;
+  gap: 6px;
+  padding-top: 10px;
+  border-top: 1px solid var(--line);
+}
+.migration__step .btn {
+  justify-self: start;
+}

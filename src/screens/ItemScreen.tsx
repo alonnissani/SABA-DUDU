@@ -1,6 +1,6 @@
 import { useState, type FormEvent } from 'react';
 import { Link, useNavigate, useParams } from 'react-router';
-import type { ItemDetail, ItemSummary, StoryType } from '../../shared/types';
+import type { ItemDetail, ItemSummary, StoryImage, StoryType } from '../../shared/types';
 import { KIND_LABELS, STORY_TYPES, STORY_TYPE_LABEL, formatBytes } from '../../shared/constants';
 import { api, fileUrl } from '../api/client';
 import { useApp, useLoad, useToast } from '../state';
@@ -13,8 +13,7 @@ import { MetaFields, metaPayload, type MetaValues } from '../components/MetaFiel
 import { accessibleTitle, displayTitle, displayableImage, formatDate, originalOf, previewOf, previewUrl } from '../lib/media';
 import { parseDriveFileId } from '../../shared/drive';
 import { DriveVideo, UploadedVideo } from '../components/VideoPlayer';
-import { AttachPicker } from './AddItem';
-import { precheck, uploadAsItem } from '../lib/uploader';
+import { precheck, uploadStoryImage } from '../lib/uploader';
 
 export function ItemScreen() {
   const { id = '' } = useParams();
@@ -133,7 +132,7 @@ function ItemView({ item, reload, onChange }: { item: ItemDetail; reload: () => 
         </p>
       )}
 
-      {item.links.some((l) => l !== storyCover(item)) && (
+      {(item.links.length > 0 || item.storyImages.length > 1) && (
         <section className="item__links" aria-labelledby="links-title">
           <h2 id="links-title" className="section-title">מצורף לסיפור</h2>
           <LinkedItems item={item} />
@@ -232,14 +231,29 @@ function MediaView({ item }: { item: ItemDetail }) {
   );
 }
 
-/** תמונת הסיפור — התמונה הראשונה שצורפה ולא נמחקה (אותו כלל כמו בכרטיס ובעריכה) */
-function storyCover(item: ItemDetail): ItemSummary | null {
-  return item.kind === 'story' ? item.links.find((l) => l.kind === 'photo' && !l.deletedAt) ?? null : null;
+/** תמונה של סיפור בצורה שהתצוגה המלאה (Lightbox) מכירה — היא לא פריט בגלריה */
+function storyImageAsItem(img: StoryImage, story: ItemDetail): ItemSummary {
+  return {
+    ...story,
+    id: img.id,
+    kind: 'photo',
+    title: '',
+    description: null,
+    excerpt: null,
+    externalVideo: null,
+    coverFileId: null,
+    commentCount: 0,
+    files: [
+      { id: img.fileId, role: 'original', mime: img.mime, size: 0, originalName: '', width: img.width, height: img.height, duration: null },
+      ...(img.thumbId ? [{ id: img.thumbId, role: 'thumb' as const, mime: 'image/webp', size: 0, originalName: '', width: null, height: null, duration: null }] : []),
+    ],
+  };
 }
 
 function StoryBody({ item }: { item: ItemDetail }) {
-  const cover = storyCover(item);
-  const photos = item.links.filter((l) => l.kind === 'photo' && !l.deletedAt);
+  // תמונות הסיפור עצמו (R2, נפרד מהגלריה); הראשונה מוצגת ליד הכותרת
+  const photos = item.storyImages.map((img) => storyImageAsItem(img, item));
+  const cover = photos[0] ?? null;
   const [open, setOpen] = useState<number | null>(null);
   const coverSrc = cover ? previewUrl(cover) : null;
   const heading = (
@@ -273,9 +287,9 @@ function StoryBody({ item }: { item: ItemDetail }) {
 }
 
 function LinkedItems({ item }: { item: ItemDetail }) {
-  // תמונת הסיפור כבר מוצגת ליד הכותרת — לא מציגים אותה פעמיים
-  const cover = storyCover(item);
-  const photos = item.links.filter((l) => l.kind === 'photo' && l !== cover);
+  // שאר תמונות הסיפור (הראשונה כבר מוצגת ליד הכותרת)
+  const all = item.storyImages.map((img) => storyImageAsItem(img, item));
+  const photos = all.slice(1);
   const [open, setOpen] = useState<number | null>(null);
   return (
     <>
@@ -419,8 +433,8 @@ function EditItem({ item, onClose, onSaved }: { item: ItemDetail; onClose: () =>
   });
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  // תמונת הסיפור: התמונה הראשונה שצורפה; אפשר להוסיף, להחליף או להסיר
-  const currentPhoto = item.kind === 'story' ? item.links.find((l) => l.kind === 'photo' && !l.deletedAt) ?? null : null;
+  // תמונת הסיפור (הראשונה מתמונות הסיפור): אפשר להוסיף, להחליף או להסיר — בלי לגעת בגלריה
+  const currentPhoto = item.kind === 'story' ? item.storyImages[0] ?? null : null;
   const [photo, setPhoto] = useState<CoverChoice>({ type: 'keep' });
   const save = async (e: FormEvent) => {
     e.preventDefault();
@@ -428,13 +442,12 @@ function EditItem({ item, onClose, onSaved }: { item: ItemDetail; onClose: () =>
     setError(null);
     try {
       const m = metaPayload(meta);
-      let coverPhotoId: string | null | undefined;
-      if (photo.type === 'archive') coverPhotoId = photo.item.id;
-      else if (photo.type === 'none') coverPhotoId = null;
-      else if (photo.type === 'file') {
-        // תמונה חדשה נשמרת גם באלבום, כמו קובץ שמצורף בכתיבת סיפור
-        const uploaded = await uploadAsItem('photo', photo.file, { title: '', description: `צורף לסיפור ״${title.trim()}״` }, () => undefined);
-        coverPhotoId = uploaded.id;
+      if (photo.type === 'file') {
+        // תמונה חדשה נשמרת עם הסיפור עצמו ונכנסת ראשונה; הקודמת (אם הוחלפה) מוסרת מהסיפור
+        await api.addStoryImage(item.id, await uploadStoryImage(photo.file));
+        if (currentPhoto) await api.removeStoryImage(item.id, currentPhoto.id);
+      } else if (photo.type === 'none' && currentPhoto) {
+        await api.removeStoryImage(item.id, currentPhoto.id);
       }
       if (item.externalVideo && !parseDriveFileId(externalUrl)) throw new Error('קישור Google Drive לא תקין');
       const updated = await api.edit(item.id, {
@@ -446,7 +459,6 @@ function EditItem({ item, onClose, onSaved }: { item: ItemDetail; onClose: () =>
         people: m.people ?? '',
         tags: m.tags,
         ...(item.kind === 'story' ? { body, storyType } : {}),
-        ...(coverPhotoId !== undefined ? { coverPhotoId } : {}),
       });
       onSaved(updated);
     } catch (err) {
@@ -492,14 +504,13 @@ function EditItem({ item, onClose, onSaved }: { item: ItemDetail; onClose: () =>
   );
 }
 
-type CoverChoice = { type: 'keep' } | { type: 'none' } | { type: 'archive'; item: ItemSummary } | { type: 'file'; file: File; url: string };
+type CoverChoice = { type: 'keep' } | { type: 'none' } | { type: 'file'; file: File; url: string };
 
-/** בחירת תמונת הסיפור בעריכה — מהאלבום או העלאה חדשה; ההסרה מנתקת את התמונה מהסיפור בלבד */
-function StoryPhotoField({ current, value, onChange, disabled }: { current: ItemSummary | null; value: CoverChoice; onChange: (v: CoverChoice) => void; disabled: boolean }) {
-  const [picker, setPicker] = useState(false);
+/** תמונת הסיפור בעריכה — העלאה חדשה, החלפה או הסרה. תמונות הסיפור נפרדות מהגלריה. */
+function StoryPhotoField({ current, value, onChange, disabled }: { current: StoryImage | null; value: CoverChoice; onChange: (v: CoverChoice) => void; disabled: boolean }) {
   const [error, setError] = useState<string | null>(null);
-  const shown =
-    value.type === 'file' ? value.url : value.type === 'archive' ? previewUrl(value.item) : value.type === 'keep' && current ? previewUrl(current) : null;
+  const currentUrl = current ? fileUrl(current.thumbId ?? current.fileId) : null;
+  const shown = value.type === 'file' ? value.url : value.type === 'keep' ? currentUrl : null;
   const has = Boolean(shown);
   const choose = (v: CoverChoice) => {
     if (value.type === 'file') URL.revokeObjectURL(value.url);
@@ -514,10 +525,6 @@ function StoryPhotoField({ current, value, onChange, disabled }: { current: Item
           {shown ? <img src={shown} alt="" /> : <Icon name="photo" size={26} />}
         </span>
         <div className="story-photo__actions">
-          <button type="button" className="btn btn--ghost btn--sm" onClick={() => setPicker(true)} disabled={disabled}>
-            <Icon name="photo" size={18} />
-            {has ? 'החלפה מהאלבום' : 'בחירה מהאלבום'}
-          </button>
           <label className={`btn btn--ghost btn--sm ${disabled ? 'is-disabled' : ''}`}>
             <input
               type="file"
@@ -534,7 +541,7 @@ function StoryPhotoField({ current, value, onChange, disabled }: { current: Item
               }}
             />
             <Icon name="upload" size={18} />
-            {has ? 'העלאת תמונה אחרת' : 'העלאת תמונה חדשה'}
+            {has ? 'העלאת תמונה אחרת' : 'העלאת תמונה'}
           </label>
           {has && (
             <button type="button" className="btn btn--text btn--sm" onClick={() => choose(current ? { type: 'none' } : { type: 'keep' })} disabled={disabled}>
@@ -543,19 +550,9 @@ function StoryPhotoField({ current, value, onChange, disabled }: { current: Item
           )}
         </div>
       </div>
-      {value.type === 'none' && <p className="field__hint">התמונה תוסר מהסיפור בשמירה (היא נשארת באלבום).</p>}
+      <p className="field__hint">התמונה נשמרת עם הסיפור בלבד — היא לא חלק מגלריית התמונות.</p>
+      {value.type === 'none' && <p className="field__hint">התמונה תוסר מהסיפור בשמירה.</p>}
       {error && <p className="pending__error">{error}</p>}
-      {picker && (
-        <AttachPicker
-          onlyKind="photo"
-          selected={value.type === 'archive' ? [value.item.id] : value.type === 'keep' && current ? [current.id] : []}
-          onClose={() => setPicker(false)}
-          onPick={(it) => {
-            choose(current && it.id === current.id ? { type: 'keep' } : { type: 'archive', item: it });
-            setPicker(false);
-          }}
-        />
-      )}
     </div>
   );
 }

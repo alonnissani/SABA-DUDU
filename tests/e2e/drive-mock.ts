@@ -32,10 +32,11 @@ export function startDriveMock(fixturesDir: string): Server {
     }
     const img = /^\/d\/([^=]+)=s\d+$/.exec(url.pathname);
     if (img) {
-      const i = state.files.findIndex((f) => f.id === img[1]);
-      if (i < 0) return send(res, 404, {});
+      const f = state.files.find((x) => x.id === img[1]);
+      if (!f) return send(res, 404, {});
+      // תמונה אנכית או אופקית — לפי המידות שהוגדרו לקובץ
       res.writeHead(200, { 'content-type': 'image/jpeg' });
-      return res.end(images[i % 2]);
+      return res.end(images[(f.height ?? 0) > (f.width ?? 0) ? 1 : 0]);
     }
     if (url.searchParams.get('key') !== MOCK_KEY) return send(res, 400, { error: { message: 'API key not valid' } });
     const meta = /^\/drive\/v3\/files\/([^/]+)$/.exec(url.pathname);

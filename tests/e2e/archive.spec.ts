@@ -3,6 +3,18 @@ import path from 'node:path';
 import { FIXTURES } from './global-setup';
 import { MOCK_FOLDER, setDriveMock } from './drive-mock';
 
+// תיקיית Google Drive המדומה: 44 תמונות (אופקיות ואנכיות), חלקן בתיקיית משנה
+const DRIVE_URL = `https://drive.google.com/drive/folders/${MOCK_FOLDER}?usp=sharing`;
+const SUB_FOLDER = { id: '1E2eSubFolderAbcdefghijklmno', parent: MOCK_FOLDER, mime: 'application/vnd.google-apps.folder' };
+const drivePhoto = (n: number, parent = MOCK_FOLDER) => ({
+  id: `1E2eDrivePhoto${String(n).padStart(3, '0')}abcdefghijk`,
+  parent,
+  mime: 'image/jpeg',
+  width: n % 2 ? 900 : 1200,
+  height: n % 2 ? 1200 : 900,
+});
+const BASE_PHOTOS = [...Array.from({ length: 42 }, (_, i) => drivePhoto(i + 1)), SUB_FOLDER, drivePhoto(43, SUB_FOLDER.id), drivePhoto(44, SUB_FOLDER.id)];
+
 const SHOTS = path.resolve('test-results/screens');
 const SETUP_TOKEN = process.env.E2E_SETUP_TOKEN ?? 'local-dev-setup-token';
 const ADMIN = { name: 'מנהל הבדיקה', email: 'admin@e2e.test', password: 'e2e-admin-pass' };
@@ -59,7 +71,7 @@ async function login(page: Page, email = ADMIN.email, password = ADMIN.password)
 
 test('מסך בית ריק, לשוניות נגישות ומצבי ריק', async ({ page }) => {
   await login(page);
-  await expect(page.getByText('הארכיון עדיין ריק')).toBeVisible();
+  await expect(page.getByText('עדיין אין תמונות בגלריה')).toBeVisible();
   await expectTabsVisible(page);
   await noHorizontalScroll(page);
   await shot(page, '02-home-empty');
@@ -71,36 +83,60 @@ test('מסך בית ריק, לשוניות נגישות ומצבי ריק', asyn
   await shot(page, '03-documents-empty');
 });
 
-test('העלאת תמונות מרובות, גלריה ותצוגה במסך מלא', async ({ page }) => {
+test('Google Drive: חיבור התיקייה, הגלריה מהדרייב ותצוגה במסך מלא', async ({ page }) => {
   await login(page);
+  await setDriveMock({ fail: null, files: BASE_PHOTOS });
+  // אין העלאה לגלריה דרך האתר — רק דרך הדרייב
   await page.goto('/c/photo/new');
-  await page.locator('input[type=file]').setInputFiles([fx('photo-a.jpg'), fx('photo-b.jpg')]);
-  const titles = page.locator('.pending__title');
-  await expect(titles).toHaveCount(2);
-  await titles.nth(0).fill('ביום ההולדת ה-80');
-  await titles.nth(1).fill('בחצר הבית');
-  await page.getByLabel('תאריך או תקופה (לא חובה)').fill('קיץ 1985');
-  await page.getByLabel('הוספת תגית').fill('משפחה');
-  await page.getByRole('button', { name: 'הוספה' }).click();
-  await shot(page, '04-photo-upload-form');
-  await page.getByRole('button', { name: 'שמירה' }).click();
-  await expect(page).toHaveURL(/\/c\/photo$/, { timeout: 30_000 });
-  await expect(page.locator('.photo-tile')).toHaveCount(2);
+  await expect(page.locator('input[type=file]')).toHaveCount(0);
+  await expect(page.getByRole('link', { name: 'חיבור Google Drive' })).toBeVisible();
+
+  await page.goto('/settings/drive');
+  await expect(page.locator('.drive-state')).toContainText('לא מחובר');
+  const input = page.getByLabel('קישור לתיקיית Google Drive');
+  // קישור לא תקין (למשל אלבום Google Photos)
+  await input.fill('https://photos.app.goo.gl/LiqUPzShxxnfGjCb6');
+  await page.getByRole('button', { name: 'חיבור תיקייה' }).click();
+  await expect(page.getByText('אינו קישור לתיקייה')).toBeVisible();
+  // תיקייה שלא קיימת / לא משותפת
+  await input.fill('https://drive.google.com/drive/folders/1E2eMissingFolderAbcdefghij');
+  await page.getByRole('button', { name: 'חיבור תיקייה' }).click();
+  await expect(page.getByText('התיקייה לא נמצאה')).toBeVisible();
+  // התיקייה הנכונה — חיבור וסנכרון ראשון (כולל תיקיית משנה)
+  await input.fill(DRIVE_URL);
+  await page.getByRole('button', { name: 'חיבור תיקייה' }).click();
+  await expect(page.locator('.drive-state')).toContainText('מחובר', { timeout: 15_000 });
+  await expect(page.getByTestId('drive-count')).toHaveText('44');
+  await page.screenshot({ path: path.join(SHOTS, '43-drive-settings.png') });
+
+  await page.goto('/c/photo');
+  const add = page.getByRole('link', { name: 'הוספת תמונות לדרייב' });
+  await expect(add).toHaveAttribute('href', `https://drive.google.com/drive/folders/${MOCK_FOLDER}`);
+  await expect(add).toHaveAttribute('target', '_blank');
+  await expect(page.locator('.drive-note')).toBeVisible();
+  await expect(page.locator('.page-head__sub')).toContainText('44');
+  const imgs = page.locator('.photo-tile img');
+  await expect.poll(() => imgs.evaluateAll((els) => els.filter((e) => (e as HTMLImageElement).naturalWidth > 0).length)).toBeGreaterThan(5);
+  expect(await page.locator('.photo-tile img:not([src*="/api/files/gd:"])').count()).toBe(0);
   await page.waitForTimeout(600);
   await shot(page, '05-gallery');
 
   await page.locator('.photo-tile__btn').first().click();
   const lb = page.locator('.lightbox');
   await expect(lb).toBeVisible();
+  const full = page.locator('.lightbox .lightbox__img img').last();
+  await expect(full).toHaveAttribute('src', /\/api\/files\/gd:[^:]+$/);
+  await expect.poll(() => full.evaluate((el: HTMLImageElement) => el.naturalWidth)).toBeGreaterThan(0);
   await page.getByRole('button', { name: 'הגדלה' }).click();
   await expect(page.locator('.lightbox__img')).toHaveAttribute('style', /scale\(1\.5\)/);
-  const dl = page.getByRole('link', { name: 'הורדת קובץ המקור' });
-  await expect(dl).toHaveAttribute('href', /download=1/);
+  await expect(page.getByRole('link', { name: 'הורדת קובץ המקור' })).toHaveAttribute('href', /gd:.*download=1/);
   await page.waitForTimeout(400);
   await page.screenshot({ path: path.join(SHOTS, '06-lightbox.png') });
   await page.getByRole('button', { name: 'סגירה' }).click();
   await expect(lb).toBeHidden();
-
+  // הדף ״הוספת תמונות״ מפנה עכשיו לתיקייה
+  await page.goto('/c/photo/new');
+  await expect(page.getByRole('link', { name: 'הוספת תמונות לדרייב' })).toBeVisible();
 });
 
 test('העלאת הקלטה, נגן שמע ואורך ההקלטה', async ({ page }) => {
@@ -160,19 +196,29 @@ test('העלאת סרטון ומסמך', async ({ page }) => {
   await shot(page, '10-document-page');
 });
 
-test('סיפור עם צירוף, ״גם אני זוכר את זה״', async ({ page }) => {
+test('סיפור עם צירוף ותמונה משלו, ״גם אני זוכר את זה״ — התמונה לא נכנסת לגלריה', async ({ page }) => {
   await login(page);
+  const galleryTotal = async () => ((await (await page.request.get('/api/items?kind=photo&limit=1')).json()) as { total: number }).total;
+  const before = await galleryTotal();
   await page.goto('/c/story/new');
   await page.getByText('בדיחה של סבא').click();
   await page.getByLabel('כותרת').fill('הבדיחה מיום ההולדת');
   await page.getByLabel('הסיפור').fill('בכל יום הולדת סבא היה עומד, מרים כוס ואומר משפט אחד קבוע.\nכולם כבר ידעו מה יבוא — ובכל זאת צחקו.');
   await page.getByRole('button', { name: 'בחירה מהארכיון' }).click();
+  // תמונות הגלריה לא מוצעות לצירוף — לסיפור יש תמונות משלו
+  await expect(page.locator('dialog .chips').getByRole('tab', { name: 'תמונות' })).toHaveCount(0);
   await page.getByRole('button', { name: 'צירוף' }).first().click();
   await page.getByRole('button', { name: 'סיום' }).click();
+  await page.locator('.attach-actions input[type=file]').setInputFiles(fx('photo-a.jpg'));
+  await expect(page.getByText('תמונה לסיפור')).toBeVisible();
   await shot(page, '11-story-form');
   await page.getByRole('button', { name: 'שמירה ופרסום' }).click();
-  await expect(page).toHaveURL(/\/item\//);
+  await expect(page).toHaveURL(/\/item\//, { timeout: 30_000 });
   await expect(page.locator('.sheet__title')).toHaveText('הבדיחה מיום ההולדת');
+  await expect(page.locator('.sheet__photo img')).toBeVisible();
+  await expect.poll(() => page.locator('.sheet__photo img').evaluate((el: HTMLImageElement) => el.naturalWidth)).toBeGreaterThan(0);
+  // התמונה של הסיפור לא נוספה לגלריה
+  expect(await galleryTotal()).toBe(before);
   await page.getByRole('button', { name: 'גם אני זוכר את זה' }).click();
   await page.getByLabel('מה את/ה זוכר/ת?').fill('נכון! ואז סבתא תמיד גלגלה עיניים.');
   await page.getByRole('button', { name: 'פרסום' }).click();
@@ -186,7 +232,7 @@ test('חיפוש בכל הקטגוריות', async ({ page }) => {
   await page.getByLabel('מה מחפשים?').fill('יום הולדת');
   await page.getByRole('button', { name: 'חיפוש', exact: true }).click();
   await expect(page.getByText(/נמצאו \d+ תוצאות/)).toBeVisible();
-  for (const label of ['תמונות', 'סרטונים', 'הקלטות', 'סיפורים', 'מסמכים']) {
+  for (const label of ['סרטונים', 'הקלטות', 'סיפורים', 'מסמכים']) {
     await expect(page.locator('.search__group h2', { hasText: label })).toBeVisible();
   }
   await shot(page, '13-search');
@@ -194,41 +240,30 @@ test('חיפוש בכל הקטגוריות', async ({ page }) => {
   await expect(page.locator('.search__group')).toHaveCount(1);
 });
 
-test('זיכרון אקראי במסך הבית', async ({ page }) => {
+test('זיכרון אקראי במסך הבית — תמונות מהגלריה בלבד', async ({ page }) => {
   await login(page);
-  const title = page.locator('.memory__title');
-  await expect(title).toBeVisible();
-  const seen = new Set([await title.textContent()]);
-  for (let i = 0; i < 4; i++) {
-    const before = await title.textContent();
-    await page.getByRole('button', { name: 'עוד זיכרון' }).click();
-    await expect(title).not.toHaveText(before!);
-    seen.add(await title.textContent());
-  }
-  expect(seen.size).toBeGreaterThanOrEqual(5);
-  await page.waitForTimeout(500);
-  await shot(page, '14-home-memory');
-  // תמונה: נמוכה בכ-40% מבעבר, ונפתחת בגודל מלא בלחיצה; פריט אחר: לדף הפריט
-  for (let i = 0; i < 30; i++) {
-    if (await page.locator('.memory__media--photo.memory__media--fit img').count()) break;
-    await page.getByRole('button', { name: 'עוד זיכרון' }).click();
-    await page.waitForTimeout(200);
-  }
   const img = page.locator('.memory__media--photo.memory__media--fit img');
   await expect(img).toBeVisible();
+  const srcOf = async () => (await img.getAttribute('src')) ?? '';
+  const seen = new Set([await srcOf()]);
+  for (let i = 0; i < 4; i++) {
+    const before = await srcOf();
+    await page.getByRole('button', { name: 'עוד זיכרון' }).click();
+    // לא אותה תמונה פעמיים ברציפות
+    await expect.poll(srcOf).not.toBe(before);
+    seen.add(await srcOf());
+  }
+  expect(seen.size).toBeGreaterThanOrEqual(5);
+  for (const src of seen) expect(src).toContain('/api/files/gd:');
+  await page.waitForTimeout(500);
+  await shot(page, '14-home-memory');
+  // קומפקטי, ונפתח בגודל מלא בלחיצה
   const h = await img.evaluate((el) => ({ h: (el as HTMLImageElement).offsetHeight, vh: innerHeight }));
-  expect(h.h).toBeLessThanOrEqual(Math.min(0.37 * h.vh, 290) + 1);
+  expect(h.h).toBeLessThanOrEqual(Math.min(0.24 * h.vh, 190) + 1);
   await page.locator('.memory__card').click();
   await expect(page.locator('.lightbox')).toBeVisible();
+  await expect(page.locator('.lightbox .lightbox__img img').last()).toHaveAttribute('src', /\/api\/files\/gd:/);
   await page.getByRole('button', { name: 'סגירה' }).click();
-  await page.getByRole('button', { name: 'עוד זיכרון' }).click();
-  for (let i = 0; i < 30; i++) {
-    if (!(await page.locator('.memory__card--button').count())) break;
-    await page.getByRole('button', { name: 'עוד זיכרון' }).click();
-    await page.waitForTimeout(200);
-  }
-  await page.locator('.memory__card').click();
-  await expect(page).toHaveURL(/\/item\//);
 });
 
 test('לשונית ״בית״ בתפריט התחתון — מכל לשונית, עם חיווי', async ({ page }) => {
@@ -254,18 +289,12 @@ test('לשונית ״בית״ בתפריט התחתון — מכל לשונית,
   await page.setViewportSize({ width: 390, height: 844 });
 });
 
-test('תמונה בלי כותרת מוצגת בלי מזהה טכני', async ({ page }) => {
+test('תמונות מהדרייב מוצגות בלי שמות קבצים או מזהים טכניים', async ({ page }) => {
   await login(page);
-  await page.goto('/c/photo/new');
-  await page.locator('input[type=file]').setInputFiles(fx('IMG_8813.jpg'));
-  await expect(page.locator('.pending__title')).toHaveValue('');
-  await page.getByRole('button', { name: 'שמירה' }).click();
-  await expect(page).toHaveURL(/\/c\/photo$/, { timeout: 30_000 });
-  await expect(page.locator('.photo-tile')).toHaveCount(3);
-  const captions = await page.locator('.photo-tile__title').allTextContents();
-  expect(captions.sort()).toEqual(['ביום ההולדת ה-80', 'בחצר הבית'].sort());
-  await expect(page.locator('.gallery')).not.toContainText('8813');
-  await expect(page.locator('.gallery')).not.toContainText('IMG');
+  await page.goto('/c/photo');
+  await expect(page.locator('.photo-tile').first()).toBeVisible();
+  await expect(page.locator('.photo-tile__title')).toHaveCount(0);
+  for (const t of ['drive-', '.jpg', '1E2e', 'IMG']) await expect(page.locator('.gallery')).not.toContainText(t);
   await shot(page, '22-gallery-untitled');
 });
 
@@ -331,78 +360,60 @@ test('״זיכרון מסבא״ מציג תמונה אנכית ואופקית ב
   expect([...seen].sort()).toEqual(['landscape', 'portrait']);
 });
 
-test('גלריה: ממוזערות בלבד, המקור נטען רק בפתיחה; 2 עמודות בנייד', async ({ page }) => {
+test('גלריה: ממוזערות בלבד, התצוגה הגדולה נטענת רק בפתיחה; 3 עמודות בנייד', async ({ page }) => {
   await login(page);
-  await page.goto('/c/photo/new');
-  await page.locator('input[type=file]').setInputFiles(fx('big-photo.jpg'));
-  await page.locator('.pending__title').fill('צילום גדול');
-  await page.getByRole('button', { name: 'שמירה' }).click();
-  await expect(page).toHaveURL(/\/c\/photo$/, { timeout: 60_000 });
-
-  const items = ((await (await page.request.get('/api/items?kind=photo&limit=100')).json()) as { items: { title: string; files: { id: string; role: string; size: number }[] }[] }).items;
-  const big = items.find((i) => i.title === 'צילום גדול')!;
-  const orig = big.files.find((f) => f.role === 'original')!;
-  const thumb = big.files.find((f) => f.role === 'thumb')!;
-  expect(thumb).toBeTruthy();
-
-  const requested = new Map<string, number>();
-  page.on('response', async (r) => {
-    const m = /\/api\/files\/([0-9a-f-]{36})/.exec(r.url());
-    if (m) requested.set(m[1], Number(r.headers()['content-length'] ?? 0));
+  const requested: string[] = [];
+  page.on('request', (r) => {
+    const m = /\/api\/files\/(gd:[^?]+)/.exec(r.url());
+    if (m) requested.push(decodeURIComponent(m[1]));
   });
-  await page.reload();
+  const pages: string[] = [];
+  page.on('request', (r) => {
+    const u = new URL(r.url());
+    if (u.pathname === '/api/items' && u.searchParams.get('kind') === 'photo') pages.push(u.searchParams.get('limit') ?? '');
+  });
+  await page.goto('/c/photo');
   await expect(page.locator('.photo-tile__img.is-loaded').first()).toBeVisible();
   await page.waitForLoadState('networkidle');
-  expect(requested.has(thumb.id)).toBe(true);
-  expect(requested.has(orig.id)).toBe(false);
-  console.log(`[gallery] original ${(orig.size / 1024).toFixed(0)}KB → thumbnail ${(thumb.size / 1024).toFixed(0)}KB`);
-  expect(thumb.size).toBeLessThan(orig.size / 5);
-
-  const cols = await page.locator('.gallery').evaluate((el) => getComputedStyle(el).columnCount);
-  expect(cols).toBe('3');
-
-  // פתיחה — רק אז נטען המקור
-  await page.locator('.photo-tile', { hasText: 'צילום גדול' }).locator('.photo-tile__btn').click();
+  expect(requested.length).toBeGreaterThan(0);
+  // רק ממוזערות (:t) — לא התצוגה הגדולה; טעינה עצלה ובעמודים של 30
+  expect(requested.every((id) => id.endsWith(':t'))).toBe(true);
+  expect(await page.locator('.photo-tile img[loading="lazy"]').count()).toBeGreaterThan(0);
+  expect(pages.every((l) => l === '30')).toBe(true);
+  expect(await page.locator('.gallery').evaluate((el) => getComputedStyle(el).columnCount)).toBe('3');
+  // פתיחה — רק אז נטענת התצוגה הגדולה
+  await page.locator('.photo-tile__btn').first().click();
   await expect(page.locator('.lightbox')).toBeVisible();
-  await expect.poll(() => requested.has(orig.id)).toBe(true);
+  await expect.poll(() => requested.some((id) => !id.endsWith(':t'))).toBe(true);
   await page.getByRole('button', { name: 'סגירה' }).click();
-  // המקור נשמר ללא שינוי (בייט-לבייט)
-  const { readFileSync } = await import('node:fs');
-  const served = Buffer.from(await (await page.request.get(`/api/files/${orig.id}`)).body());
-  expect(served.equals(readFileSync(fx('big-photo.jpg')))).toBe(true);
+  // הורדת המקור — הפניה ישירה לגוגל (אין עותק אצלנו)
+  const first = ((await (await page.request.get('/api/items?kind=photo&limit=1')).json()) as { items: { files: { id: string; role: string }[] }[] }).items[0];
+  const dl = await page.request.get(`/api/files/${first.files.find((f) => f.role === 'original')!.id}?download=1`, { maxRedirects: 0 });
+  expect(dl.status()).toBe(302);
+  expect(dl.headers()['location']).toContain('drive.google.com');
 });
 
 test('גלריה: סדר אקראי בכל כניסה, טעינה הדרגתית בלי כפילויות או חוסרים', async ({ page }) => {
   await login(page);
-  const origin = new URL(page.url()).origin;
-  const png = Buffer.from('89504e470d0a1a0a0000000d49484452000000010000000108060000001f15c4890000000d4944415478da63f8cfc0f01f0005000201a5e4c7d10000000049454e44ae426082', 'hex');
-  for (let i = 0; i < 40; i++) {
-    const up = (await (await page.request.post(`/api/uploads/direct?kind=photo&role=original&name=bulk${i}.png`, { data: png, headers: { 'content-type': 'image/png', origin } })).json()) as { id: string };
-    await page.request.post('/api/items', { data: { kind: 'photo', title: `מספר ${i}`, files: [{ id: up.id }] }, headers: { origin } });
-  }
   const total = ((await (await page.request.get('/api/items?kind=photo&limit=1')).json()) as { total: number }).total;
-  expect(total).toBeGreaterThan(40);
-
+  expect(total).toBe(44);
   const seeds: string[] = [];
   page.on('request', (r) => {
     const u = new URL(r.url());
     if (u.pathname === '/api/items' && u.searchParams.get('kind') === 'photo' && u.searchParams.get('offset') === '0') seeds.push(u.searchParams.get('seed') ?? '');
   });
-  const firstTitles = async () => {
+  const firstSrcs = async () => {
     await expect(page.locator('.photo-tile').first()).toBeVisible();
-    return (await page.locator('.photo-tile').evaluateAll((els) => els.slice(0, 12).map((e) => e.textContent ?? ''))).join('|');
+    return (await page.locator('.photo-tile img').evaluateAll((els) => els.slice(0, 12).map((e) => e.getAttribute('src') ?? ''))).join('|');
   };
   const nav = page.locator('.tabs--bottom');
   await nav.getByRole('link', { name: 'תמונות' }).click();
-  const a = await firstTitles();
+  const a = await firstSrcs();
   await nav.getByRole('link', { name: 'בית' }).click();
   await nav.getByRole('link', { name: 'תמונות' }).click();
-  const b = await firstTitles();
-  // (בפיתוח React מריץ effects פעמיים, ולכן אותו seed יכול להופיע פעמיים באותה כניסה)
+  const b = await firstSrcs();
   expect(new Set(seeds).size).toBeGreaterThanOrEqual(2);
   expect(a).not.toBe(b);
-
-  // גלילה עד הסוף — טעינה אוטומטית של כל התמונות, כל אחת פעם אחת
   for (let i = 0; i < 30; i++) {
     if ((await page.locator('.photo-tile').count()) >= total) break;
     await page.mouse.wheel(0, 4000);
@@ -503,23 +514,20 @@ test('סרטונים: חלונית צפייה ביחס המקורי, בלי מס
   await expect(page.getByRole('link', { name: 'פתיחה ב-Google Drive' })).toBeVisible();
 });
 
-test('יצירת ממוזערות לתמונות קיימות — המקור לא משתנה', async ({ page }) => {
+test('יצירת ממוזערות למסמכים שהם תמונות — המקור לא משתנה', async ({ page }) => {
   await login(page);
   const origin = new URL(page.url()).origin;
   const { readFileSync } = await import('node:fs');
   const jpg = readFileSync(fx('photo-b.jpg'));
-  const up = (await (await page.request.post('/api/uploads/direct?kind=photo&role=original&name=old-without-thumb.jpg', { data: jpg, headers: { 'content-type': 'image/jpeg', origin } })).json()) as { id: string };
-  const item = (await (await page.request.post('/api/items', { data: { kind: 'photo', title: 'ישנה בלי ממוזערת', files: [{ id: up.id }] }, headers: { origin } })).json()) as { id: string };
-
+  const up = (await (await page.request.post('/api/uploads/direct?kind=document&role=original&name=scan-without-thumb.jpg', { data: jpg, headers: { 'content-type': 'image/jpeg', origin } })).json()) as { id: string };
+  const item = (await (await page.request.post('/api/items', { data: { kind: 'document', title: 'סריקה בלי ממוזערת', files: [{ id: up.id }] }, headers: { origin } })).json()) as { id: string };
   await page.goto('/settings/thumbs');
-  await expect(page.getByText(/תמונות עדיין בלי גרסה מוקטנת/)).toBeVisible();
+  await expect(page.getByText(/בלי גרסה מוקטנת/)).toBeVisible();
   await page.getByRole('button', { name: 'יצירת תמונות ממוזערות עכשיו' }).click();
   await expect(page.getByText('לכל התמונות כבר יש גרסה מוקטנת ✓')).toBeVisible({ timeout: 60_000 });
   await shot(page, '28-thumbs-backfill');
-
   const detail = (await (await page.request.get(`/api/items/${item.id}`)).json()) as { files: { id: string; role: string; mime: string }[] };
-  const t = detail.files.find((f) => f.role === 'thumb');
-  expect(t?.mime).toBe('image/webp');
+  expect(detail.files.find((f) => f.role === 'thumb')?.mime).toBe('image/webp');
   const served = Buffer.from(await (await page.request.get(`/api/files/${up.id}`)).body());
   expect(served.equals(jpg)).toBe(true);
 });
@@ -551,6 +559,12 @@ test('מחיקת תמונה (מנהל) — מתוך התצוגה המלאה בל
   await expect(page.locator(`.photo-tile img[src="${src}"]`)).toHaveCount(0);
   await expect.poll(totalOf).toBe(before - 1);
   await shot(page, '33-gallery-clean');
+  // הקובץ נשאר בדרייב — וסנכרון לא מחזיר תמונה שהמנהל הסיר
+  const origin = new URL(page.url()).origin;
+  const sync = (await (await page.request.post('/api/admin/drive/sync', { headers: { origin } })).json()) as { sync: { ok: boolean; total: number } };
+  expect(sync.sync).toMatchObject({ ok: true, total: 44 });
+  await page.reload();
+  await expect.poll(totalOf).toBe(before - 1);
   // משוחזר מסל המחזור — כדי לא לשנות את שאר הבדיקות
   await page.goto('/settings/content');
   await page.getByRole('button', { name: 'שחזור' }).first().click();
@@ -650,18 +664,20 @@ test('בן משפחה מוזמן — אין לו אפשרות מחיקה, והש
 test('מנהל מוחק ומשחזר', async ({ page }) => {
   await login(page);
   await page.goto('/c/document');
+  await expect(page.locator('.doc-card').first()).toBeVisible();
+  const docs = await page.locator('.doc-card').count();
   await page.locator('.doc-card').first().click();
   await page.getByRole('button', { name: 'מחיקה' }).click();
   await page.locator('dialog').getByRole('button', { name: 'מחיקה' }).click();
   await expect(page).toHaveURL(/\/c\/document$/);
-  await expect(page.getByText('עדיין אין מסמכים')).toBeVisible();
+  await expect(page.locator('.doc-card')).toHaveCount(docs - 1);
   await page.goto('/settings/content');
   await expect(page.locator('.row-card')).toHaveCount(1);
   await shot(page, '16-trash');
   await page.getByRole('button', { name: 'שחזור' }).click();
   await expect(page.getByText('סל המחזור ריק.')).toBeVisible();
   await page.goto('/c/document');
-  await expect(page.locator('.doc-card')).toHaveCount(1);
+  await expect(page.locator('.doc-card')).toHaveCount(docs);
 });
 
 test('הגדרות מסך פתיחה ותמונה ראשית', async ({ page }) => {
@@ -776,7 +792,7 @@ test('סרטונים וסיפורים: סדר אקראי בכל כניסה, בל
   await page.screenshot({ path: path.join(SHOTS, '39-stories-board.png') });
 });
 
-test('תמונה לסיפור: ממוזערת לצד הכותרת, הוספה, החלפה והסרה בעריכה', async ({ page }) => {
+test('תמונה לסיפור: ממוזערת לצד הכותרת, הוספה, החלפה והסרה בעריכה — בלי לגעת בגלריה', async ({ page }) => {
   await login(page);
   const origin = new URL(page.url()).origin;
   const body = 'סבא היה מכין קפה שחור בכל בוקר ויושב במרפסת, ומספר לנו על הימים ההם.';
@@ -785,19 +801,22 @@ test('תמונה לסיפור: ממוזערת לצד הכותרת, הוספה, �
   const summary = async () =>
     ((await (await page.request.get('/api/items?kind=story&limit=100')).json()) as { items: { id: string; coverFileId: string | null; title: string; excerpt: string }[] }).items.find((i) => i.id === story.id)!;
   expect((await summary()).coverFileId).toBeNull();
+  const galleryTotal = async () => ((await (await page.request.get('/api/items?kind=photo&limit=1')).json()) as { total: number }).total;
+  const galleryBefore = await galleryTotal();
 
   const openEdit = async () => {
     await page.goto(`/item/${story.id}`);
     await page.getByRole('button', { name: /עריכה/ }).first().click();
     await expect(page.locator('.story-photo')).toBeVisible();
   };
-  // הוספה מהאלבום
+  // הוספה — העלאה ישירה לסיפור (אין בחירה מגלריית התמונות)
   await openEdit();
-  await page.getByRole('button', { name: 'בחירה מהאלבום' }).click();
-  await page.getByRole('button', { name: 'צירוף' }).first().click();
+  await expect(page.getByRole('button', { name: 'בחירה מהאלבום' })).toHaveCount(0);
+  await page.locator('.story-photo input[type=file]').setInputFiles(fx('photo-b.jpg'));
   await expect(page.locator('.story-photo__preview img')).toBeVisible();
   await page.getByRole('button', { name: 'שמירה', exact: true }).click();
-  await expect(page.locator('.story-photo')).toHaveCount(0);
+  await expect(page.locator('.story-photo')).toHaveCount(0, { timeout: 30_000 });
+  expect(await galleryTotal()).toBe(galleryBefore);
   const first = (await summary()).coverFileId;
   expect(first).not.toBeNull();
   // בדף הסיפור — התמונה ליד הכותרת, ולחיצה פותחת אותה בגודל מלא
@@ -835,8 +854,10 @@ test('תמונה לסיפור: ממוזערת לצד הכותרת, הוספה, �
   expect(second).not.toBeNull();
   expect(second).not.toBe(first);
 
-  // הסרה — התמונה נשארת באלבום, שאר פרטי הסיפור לא משתנים
-  const photosBefore = ((await (await page.request.get('/api/items?kind=photo&limit=1')).json()) as { total: number }).total;
+  expect(await galleryTotal()).toBe(galleryBefore);
+
+  // הסרה — רק מהסיפור; שאר פרטי הסיפור והגלריה לא משתנים
+  const photosBefore = await galleryTotal();
   await openEdit();
   await page.getByRole('button', { name: 'הסרת התמונה' }).click();
   await page.getByRole('button', { name: 'שמירה', exact: true }).click();
@@ -920,107 +941,70 @@ test('מסך פתיחה: זיכרונות מרחפים, לא חוסמים, וח�
   await shot(page, '38-landing-memories-360');
 });
 
-test('Google Drive: חיבור תיקייה, סנכרון, גלריה, תצוגה מלאה, זיכרון מסבא והעלאה דרך הדרייב', async ({ page }) => {
+test('Google Drive: תמונה חדשה מופיעה אחרי סנכרון וב״זיכרון מסבא״, הוסרה — נעלמת, שגיאה — שום דבר לא נמחק', async ({ page }) => {
   await login(page);
-  const id = (n: number) => `1E2eDrivePhoto${String(n).padStart(3, '0')}abcdefghijk`;
-  const sub = '1E2eSubFolderAbcdefghijklmno';
-  const photo = (n: number, parent = MOCK_FOLDER) => ({ id: id(n), parent, mime: 'image/jpeg', width: n % 2 ? 1200 : 900, height: n % 2 ? 900 : 1200 });
-  await setDriveMock({ fail: null, files: [photo(1), photo(2), { id: sub, parent: MOCK_FOLDER, mime: 'application/vnd.google-apps.folder' }, photo(3, sub)] });
-  const before = ((await (await page.request.get('/api/items?kind=photo&limit=1')).json()) as { total: number }).total;
-
+  const total = async () => ((await (await page.request.get('/api/items?kind=photo&limit=1')).json()) as { total: number }).total;
+  const start = await total();
+  // תמונה חדשה בדרייב (ותמונה אחת שהוסרה ממנו)
+  const fresh = drivePhoto(45);
+  await setDriveMock({ fail: null, files: [...BASE_PHOTOS.filter((f) => f.id !== drivePhoto(2).id), fresh] });
   await page.goto('/settings/drive');
-  await expect(page.locator('.drive-state')).toContainText('לא מחובר');
-  const input = page.getByLabel('קישור לתיקיית Google Drive');
-  // קישור לא תקין
-  await input.fill('https://example.com/folder');
-  await page.getByRole('button', { name: 'חיבור תיקייה' }).click();
-  await expect(page.getByText('אינו קישור לתיקייה')).toBeVisible();
-  // תיקייה שלא קיימת / לא משותפת
-  await input.fill('https://drive.google.com/drive/folders/1E2eMissingFolderAbcdefghij');
-  await page.getByRole('button', { name: 'חיבור תיקייה' }).click();
-  await expect(page.getByText('התיקייה לא נמצאה')).toBeVisible();
-  // התיקייה הנכונה — חיבור וסנכרון ראשון
-  await input.fill(`https://drive.google.com/drive/folders/${MOCK_FOLDER}?usp=sharing`);
-  await page.getByRole('button', { name: 'חיבור תיקייה' }).click();
-  await expect(page.locator('.drive-state')).toContainText('מחובר', { timeout: 15_000 });
-  await expect(page.getByTestId('drive-count')).toHaveText('3');
-  await page.screenshot({ path: path.join(SHOTS, '43-drive-settings.png') });
-
-  // הגלריה: תמונות הדרייב בסדר אקראי, ממוזערות דרך האתר, בלי שמות קבצים
-  await page.goto('/c/photo');
-  const add = page.getByRole('link', { name: 'הוספת תמונות לדרייב' });
-  await expect(add).toHaveAttribute('href', `https://drive.google.com/drive/folders/${MOCK_FOLDER}`);
-  await expect(add).toHaveAttribute('target', '_blank');
-  await expect(page.locator('.drive-note')).toBeVisible();
-  // טעינה הדרגתית — גוללים עד הסוף
-  const scrollAll = async (total: number) => {
-    for (let i = 0; i < 30 && (await page.locator('.photo-tile').count()) < total; i++) {
-      await page.mouse.wheel(0, 4000);
-      await page.waitForTimeout(250);
-    }
-    await expect(page.locator('.photo-tile')).toHaveCount(total);
-  };
-  await scrollAll(before + 3);
-  const driveImg = page.locator('.photo-tile img[src*="/api/files/gd:"]');
-  await expect(driveImg).toHaveCount(3);
-  for (const el of await driveImg.all()) await el.scrollIntoViewIfNeeded();
-  await expect.poll(() => driveImg.evaluateAll((els) => els.filter((e) => (e as HTMLImageElement).naturalWidth > 0).length)).toBe(3);
-  const driveTiles = page.locator('.photo-tile:has(img[src*="/api/files/gd:"])');
-  await expect(driveTiles).toHaveCount(3);
-  expect(await driveTiles.locator('.photo-tile__cap').count()).toBe(0);
-  await shot(page, '44-drive-gallery');
-  // גם אחרי רענון — הכתובות יציבות
-  await page.reload();
-  await scrollAll(before + 3);
-  for (const el of await driveImg.all()) await el.scrollIntoViewIfNeeded();
-  await expect.poll(() => driveImg.evaluateAll((els) => els.filter((e) => (e as HTMLImageElement).naturalWidth > 0).length)).toBe(3);
-
-  // תצוגה מלאה — תמונה גדולה מהדרייב
-  await page.locator('.photo-tile:has(img[src*="/api/files/gd:"]) .photo-tile__btn').first().click();
-  const full = page.locator('.lightbox .lightbox__img img').last();
-  await expect(full).toHaveAttribute('src', /\/api\/files\/gd:[^:]+$/);
-  await expect.poll(() => full.evaluate((el: HTMLImageElement) => el.naturalWidth)).toBeGreaterThan(0);
-  await expect(page.getByRole('link', { name: 'הורדת קובץ המקור' })).toHaveAttribute('href', /gd:.*download=1/);
-  await page.getByRole('button', { name: 'סגירה' }).click();
-
-  // דף ״הוספת תמונה״ — מפנה לדרייב
-  await page.goto('/c/photo/new');
-  await expect(page.getByRole('link', { name: 'הוספת תמונות לדרייב' })).toBeVisible();
-  await expect(page.locator('input[type=file]')).toHaveCount(0);
-
-  // סנכרון ידני: תמונה חדשה נוספת, תמונה שהוסרה מוסתרת
-  await setDriveMock({ files: [photo(1), { id: sub, parent: MOCK_FOLDER, mime: 'application/vnd.google-apps.folder' }, photo(3, sub), photo(4)] });
-  await page.goto('/settings/drive');
+  await expect(page.locator('.drive-state')).toContainText('מחובר');
   await page.getByRole('button', { name: 'סנכרן עכשיו' }).click();
   await expect(page.getByText(/הסנכרון הושלם/).first()).toBeVisible();
-  await expect(page.getByTestId('drive-count')).toHaveText('3');
-  expect(((await (await page.request.get('/api/items?kind=photo&limit=1')).json()) as { total: number }).total).toBe(before + 3);
+  expect(await total()).toBe(start);
+  const freshItem = ((await (await page.request.get('/api/items?kind=photo&sort=new&limit=100')).json()) as { items: { id: string; files: { id: string }[] }[] }).items.find((i) => i.files.some((f) => f.id.includes(fresh.id)));
+  expect(freshItem).toBeTruthy();
 
   // שגיאת API — מוצגת, ושום תמונה לא נמחקת
   await setDriveMock({ fail: 500 });
   await page.getByRole('button', { name: 'סנכרן עכשיו' }).click();
   await expect(page.locator('.drive-state')).toContainText('שגיאת חיבור');
-  await expect(page.getByTestId('drive-count')).toHaveText('3');
-  await setDriveMock({ fail: null });
+  expect(await total()).toBe(start);
+  await setDriveMock({ fail: null, files: BASE_PHOTOS.filter((f) => f.id !== drivePhoto(2).id).concat(fresh) });
+  await page.getByRole('button', { name: 'סנכרן עכשיו' }).click();
+  await expect(page.locator('.drive-state')).toContainText('מחובר');
 
-  // ״זיכרון מסבא״ — גם תמונות מהדרייב, ופתיחה בגודל מלא
+  // ״זיכרון מסבא״ — יכול להציג את התמונה החדשה
   await page.goto('/home');
   let found = false;
-  // (3 תמונות דרייב מתוך כ-110 פריטים בארכיון הבדיקה — לכן עד 200 ניסיונות)
   for (let i = 0; i < 200 && !found; i++) {
-    const img = page.locator('.memory__media img');
-    if (await img.count()) found = ((await img.first().getAttribute('src')) ?? '').includes('/api/files/gd:');
+    const src = (await page.locator('.memory__media img').first().getAttribute('src')) ?? '';
+    found = src.includes(fresh.id);
     if (!found) {
       await page.getByRole('button', { name: 'עוד זיכרון' }).click();
-      await page.waitForTimeout(120);
+      await page.waitForTimeout(80);
     }
   }
   expect(found).toBe(true);
-  await expect.poll(() => page.locator('.memory__media img').first().evaluate((el: HTMLImageElement) => el.naturalWidth)).toBeGreaterThan(0);
   await page.locator('.memory__card--button').click();
-  await expect(page.locator('.lightbox .lightbox__img img').last()).toHaveAttribute('src', /\/api\/files\/gd:/);
+  await expect(page.locator('.lightbox .lightbox__img img').last()).toHaveAttribute('src', new RegExp(fresh.id));
   await page.getByRole('button', { name: 'סגירה' }).click();
+  // התמונה שהוסרה מהדרייב לא מופיעה ב״זיכרון מסבא״ ולא בגלריה
+  const all = ((await (await page.request.get('/api/items?kind=photo&limit=100')).json()) as { items: { files: { id: string }[] }[] }).items;
+  expect(all.some((i) => i.files.some((f) => f.id.includes(drivePhoto(2).id)))).toBe(false);
+  // החזרה למצב הבסיס
+  await setDriveMock({ files: BASE_PHOTOS });
+  await page.request.post('/api/admin/drive/sync', { headers: { origin: new URL(page.url()).origin } });
   await noHorizontalScroll(page);
+});
+
+test('מעבר וניקוי: אין תמונות ישנות, ומפתח ה-API לא נחשף בדפדפן', async ({ page }) => {
+  await login(page);
+  await page.goto('/settings/drive');
+  await expect(page.locator('.migration')).toBeVisible();
+  await expect(page.getByTestId('mig-drive')).toHaveText('44');
+  await expect(page.getByTestId('mig-legacy')).toHaveText('0');
+  await expect(page.getByTestId('mig-linked')).toHaveText('0');
+  await page.screenshot({ path: path.join(SHOTS, '45-migration.png'), fullPage: true });
+  // המפתח לא מופיע בשום משאב שהדפדפן קיבל
+  const html = await page.content();
+  expect(html).not.toContain('e2e-drive-key');
+  const scripts = await page.evaluate(() => Array.from(document.scripts).map((s) => s.src).filter(Boolean));
+  for (const src of scripts) expect(await (await page.request.get(src)).text()).not.toContain('e2e-drive-key');
+  for (const api of ['/api/settings', '/api/admin/drive', '/api/admin/drive/migration', '/api/items?kind=photo']) {
+    expect(await (await page.request.get(api)).text()).not.toContain('e2e-drive-key');
+  }
 });
 
 test.describe('מסך פתיחה עם הפחתת תנועה', () => {

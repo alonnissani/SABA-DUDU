@@ -59,6 +59,23 @@ export interface ListParams {
   deleted?: boolean;
 }
 
+export interface StoryImageUpload {
+  fileId: string;
+  thumbId?: string | null;
+  width?: number | null;
+  height?: number | null;
+}
+
+export interface CleanupReport {
+  drive: { connected: boolean; lastSyncOk: boolean; photos: number };
+  legacy: { photos: number; files: number; bytes: number };
+  storyLinkedPhotos: number;
+  storyImages: number;
+  heroProtected: boolean;
+  deleted: { items: number; files: number; bytes: number; lastRunAt: number | null };
+  blockers: string[];
+}
+
 export interface DriveSyncResult {
   ok: boolean;
   message: string;
@@ -81,8 +98,8 @@ export interface NewItem {
   tags?: string[];
   files?: { id: string; width?: number; height?: number; duration?: number }[];
   linkIds?: string[];
-  /** סיפור (עריכה): תמונת הסיפור — מזהה תמונה מהאלבום, או null להסרה */
-  coverPhotoId?: string | null;
+  /** סיפור: תמונות שהועלו לסיפור עצמו (לא מהגלריה) */
+  images?: StoryImageUpload[];
   /** סרטון: קישור שיתוף ל-Google Drive במקום קובץ */
   externalUrl?: string;
 }
@@ -105,6 +122,8 @@ export const api = {
   item: (id: string) => get<ItemDetail>(`/items/${id}`),
   create: (b: NewItem) => post<ItemDetail>('/items', b),
   edit: (id: string, b: Partial<NewItem>) => patch<ItemDetail>(`/items/${id}`, b),
+  addStoryImage: (id: string, img: StoryImageUpload) => post<ItemDetail>(`/items/${id}/images`, img),
+  removeStoryImage: (id: string, imageId: string) => del<ItemDetail>(`/items/${id}/images/${imageId}`),
   remove: (id: string) => del(`/items/${id}`),
   restore: (id: string) => post(`/items/${id}/restore`),
   comment: (id: string, body: string, kind: 'comment' | 'memory') => post(`/items/${id}/comments`, { body, kind }),
@@ -116,6 +135,14 @@ export const api = {
 
   admin: {
     drive: () => get<DriveStatus>('/admin/drive'),
+    migration: () => get<CleanupReport>('/admin/drive/migration'),
+    separateStories: () => post<{ result: { copied: number; failed: number; remaining: number }; report: CleanupReport }>('/admin/drive/migration/separate'),
+    cleanupLegacy: () =>
+      post<{
+        result: { items: number; files: number; bytes: number; remaining: number };
+        report: CleanupReport;
+        integrity: { storyImagesChecked: number; missingStoryFiles: number; brokenLinks: number; orphanFiles: number } | null;
+      }>('/admin/drive/migration/cleanup', { confirm: 'מחיקה' }),
     connectDrive: (url: string) => put<{ sync: DriveSyncResult; status: DriveStatus }>('/admin/drive', { url }),
     syncDrive: () => post<{ sync: DriveSyncResult; status: DriveStatus }>('/admin/drive/sync'),
     users: () => get<AdminUser[]>('/admin/users'),
@@ -171,7 +198,8 @@ const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 /** מעלה קובץ — ישירות אם הוא קטן, או בחלקים עם ניסיונות חוזרים אם הוא גדול. */
 export async function uploadFile(
   file: Blob,
-  opts: { kind: Exclude<ItemKind, 'story'>; role?: 'original' | 'thumb' | 'poster'; name: string; mime: string; onProgress?: Progress; signal?: AbortSignal },
+  // kind 'story' — תמונה של סיפור (נשמרת בנתיב הסיפורים, לא בגלריה)
+  opts: { kind: ItemKind; role?: 'original' | 'thumb' | 'poster'; name: string; mime: string; onProgress?: Progress; signal?: AbortSignal },
 ): Promise<FileInfo> {
   const role = opts.role ?? 'original';
   const total = file.size;

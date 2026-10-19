@@ -1,7 +1,8 @@
 import { useEffect, useState, type FormEvent } from 'react';
 import type { DriveStatus } from '../../../shared/types';
 import { parseDriveFolder } from '../../../shared/drive';
-import { api, type DriveSyncResult } from '../../api/client';
+import { api, type CleanupReport, type DriveSyncResult } from '../../api/client';
+import { formatBytes } from '../../../shared/constants';
 import { useApp, useLoad, useToast } from '../../state';
 import { ErrorBox, Field, Spinner } from '../../components/Common';
 import { Icon } from '../../components/Icon';
@@ -148,9 +149,130 @@ export function DriveSection() {
         </div>
         <p className="muted small">
           החיבור נשמר באופן קבוע. האתר מסתנכרן לבד פעם בשעה: תמונות חדשות מתווספות, ותמונות שהוסרו מהדרייב מוסתרות מהאתר (בלי למחוק דבר בדרייב).
-          התמונות לא מועתקות לאחסון של האתר. תמונות שהועלו לאתר בעבר ממשיכות להופיע כרגיל.
+          התמונות לא מועתקות לאחסון של האתר. גלריית התמונות ו״זיכרון מסבא״ מציגים רק את תמונות התיקייה; תמונות של סיפורים נשמרות בנפרד, עם הסיפור.
         </p>
       </form>
+      {s.folder && <GalleryMigration onDone={status.reload} />}
+    </div>
+  );
+}
+
+/**
+ * מעבר וניקוי הגלריה הישנה: דוח ← הפרדת תמונות הסיפורים (עותקים עצמאיים) ← מחיקת התמונות הישנות מ-R2.
+ * שום דבר לא נמחק מ-Google Drive, ותמונות של סיפורים לעולם לא נמחקות כאן.
+ */
+function GalleryMigration({ onDone }: { onDone: () => void }) {
+  const toast = useToast();
+  const report = useLoad(() => api.admin.migration(), []);
+  const [r, setR] = useState<CleanupReport | null>(null);
+  const [busy, setBusy] = useState<'separate' | 'cleanup' | null>(null);
+  const [confirm, setConfirm] = useState('');
+  const [msg, setMsg] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  useEffect(() => {
+    if (report.data) setR(report.data);
+  }, [report.data]);
+
+  const separate = async () => {
+    setBusy('separate');
+    setError(null);
+    try {
+      let copied = 0;
+      let failed = 0;
+      for (let i = 0; i < 200; i++) {
+        const res = await api.admin.separateStories();
+        copied += res.result.copied;
+        failed += res.result.failed;
+        setR(res.report);
+        if (res.result.remaining === 0 || res.result.copied === 0) break;
+      }
+      setMsg(`הופרדו ${copied} תמונות של סיפורים${failed ? ` (${failed} לא הופרדו — הן נשארות ולא יימחקו)` : ''}. בדקו שהסיפורים מציגים את התמונות.`);
+      toast('תמונות הסיפורים הופרדו מהגלריה');
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const cleanup = async () => {
+    setBusy('cleanup');
+    setError(null);
+    try {
+      let items = 0;
+      let files = 0;
+      let bytes = 0;
+      let integrity: Awaited<ReturnType<typeof api.admin.cleanupLegacy>>['integrity'] = null;
+      for (let i = 0; i < 500; i++) {
+        const res = await api.admin.cleanupLegacy();
+        items += res.result.items;
+        files += res.result.files;
+        bytes += res.result.bytes;
+        setR(res.report);
+        integrity = res.integrity;
+        if (res.result.remaining === 0 || res.result.items === 0) break;
+      }
+      setMsg(
+        `נמחקו ${items} תמונות ישנות (${files} קבצים, ${formatBytes(bytes)}) מאחסון האתר.` +
+          (integrity ? ` בדיקת שלמות: ${integrity.storyImagesChecked} קבצי סיפורים נבדקו, ${integrity.missingStoryFiles} חסרים, ${integrity.brokenLinks} הפניות שבורות.` : ''),
+      );
+      setConfirm('');
+      toast('הניקוי הסתיים');
+      onDone();
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  if (!r) return report.error ? <ErrorBox message={report.error} onRetry={report.reload} /> : <Spinner />;
+  const canSeparate = r.storyLinkedPhotos > 0;
+  const canCleanup = r.blockers.length === 0 && r.legacy.photos > 0;
+
+  return (
+    <div className="panel stack migration">
+      <h2 className="panel__title">מעבר וניקוי הגלריה הישנה</h2>
+      <dl className="drive-facts">
+        <div><dt>תמונות בגלריה החדשה (Drive)</dt><dd data-testid="mig-drive">{r.drive.photos}</dd></div>
+        <div><dt>תמונות ישנות באחסון האתר</dt><dd data-testid="mig-legacy">{r.legacy.photos}</dd></div>
+        <div><dt>נפח האחסון הישן</dt><dd>{formatBytes(r.legacy.bytes)}</dd></div>
+        <div><dt>מצורפות לסיפורים</dt><dd data-testid="mig-linked">{r.storyLinkedPhotos}</dd></div>
+        <div><dt>תמונות של סיפורים (נפרדות)</dt><dd>{r.storyImages}</dd></div>
+        {r.deleted.items > 0 && <div><dt>נמחקו עד כה</dt><dd data-testid="mig-deleted">{r.deleted.items} ({formatBytes(r.deleted.bytes)})</dd></div>}
+      </dl>
+      {r.heroProtected && <p className="muted small">התמונה הראשית של האתר שמורה ולא תימחק.</p>}
+
+      <div className="migration__step">
+        <strong>1. הפרדת תמונות הסיפורים</strong>
+        <p className="muted small">לכל תמונה מהגלריה שמצורפת לסיפור נוצר עותק עצמאי של הסיפור. העותק נבדק, ורק אז הקישור לגלריה מוסר.</p>
+        <button type="button" className="btn btn--ghost btn--sm" onClick={separate} disabled={busy !== null || !canSeparate}>
+          {busy === 'separate' ? 'מפריד…' : canSeparate ? `הפרדת ${r.storyLinkedPhotos} תמונות של סיפורים` : 'אין תמונות להפרדה ✓'}
+        </button>
+      </div>
+
+      <div className="migration__step">
+        <strong>2. מחיקת התמונות הישנות מאחסון האתר</strong>
+        <p className="muted small">
+          נמחקות רק תמונות גלריה שהועלו לאתר בעבר (כולל תגובות ותגיות שעליהן). לא נמחק שום דבר מ-Google Drive, ולא תמונות של סיפורים, מסמכים, סרטונים או הקלטות.
+        </p>
+        {r.blockers.length > 0 && (
+          <ul className="drive-error small">
+            {r.blockers.map((b) => <li key={b}>{b}</li>)}
+          </ul>
+        )}
+        {canCleanup && (
+          <Field label="לאישור הקלידו: מחיקה">
+            <input value={confirm} onChange={(e) => setConfirm(e.target.value)} />
+          </Field>
+        )}
+        <button type="button" className="btn btn--danger-ghost btn--sm" onClick={cleanup} disabled={busy !== null || !canCleanup || confirm.trim() !== 'מחיקה'}>
+          <Icon name="trash" size={18} />
+          {busy === 'cleanup' ? 'מוחק…' : r.legacy.photos > 0 ? `מחיקת ${r.legacy.photos} תמונות ישנות (${formatBytes(r.legacy.bytes)})` : 'אין תמונות ישנות ✓'}
+        </button>
+      </div>
+      {msg && <p className="drive-msg" data-testid="mig-msg">{msg}</p>}
+      {error && <ErrorBox message={error} />}
     </div>
   );
 }

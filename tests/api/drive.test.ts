@@ -185,3 +185,100 @@ describe('חיבור Google Drive', () => {
     expect(((await (await admin.get('/api/items?kind=photo&limit=1')).json()) as { total: number }).total).toBe(7);
   });
 });
+
+describe('מעבר וניקוי הגלריה הישנה', () => {
+  it('הפרדת תמונות הסיפורים לעותקים עצמאיים, ואז מחיקה בטוחה רק של הגלריה הישנה', async () => {
+    const { legacyPhoto, createMedia, MP3, PDF, PNG } = await import('./helpers');
+    const admin = await setupAdmin();
+    const member = await inviteMember(admin);
+    // גלריה ישנה ב-R2: אחת עם ממוזערת, תגית ותגובה; אחת מצורפת לסיפור; אחת היא התמונה הראשית
+    const l1 = await legacyPhoto(admin, PNG, 'old1.png', 'image/png', { thumb: true });
+    await member.post(`/api/items/${l1.id}/comments`, { body: 'איזו תמונה' });
+    const l2 = await legacyPhoto(admin, PNG, 'old2.png', 'image/png');
+    const l3 = await legacyPhoto(admin, PNG, 'hero.png', 'image/png');
+    expect((await admin.put('/api/admin/hero', { fileId: l3.files[0].id })).status).toBe(200);
+    // תוכן אחר שאסור לגעת בו
+    const doc = await createMedia(admin, 'document', PDF, 'd.pdf', 'application/pdf');
+    const audio = await createMedia(admin, 'audio', MP3, 'a.mp3', 'audio/mpeg');
+    const story = (await (await admin.post('/api/items', { kind: 'story', title: 'סיפור', body: 'תוכן', storyType: 'family', linkIds: [audio.id] })).json()) as { id: string };
+    // הצירוף הישן (לפני ההפרדה): תמונת גלריה ישנה מקושרת לסיפור
+    await env.DB.prepare('INSERT INTO item_links (story_id, item_id, position) VALUES (?, ?, 5)').bind(story.id, l2.id).run();
+
+    // לפני חיבור הדרייב — הניקוי חסום
+    let rep = (await (await admin.get('/api/admin/drive/migration')).json()) as { blockers: string[]; legacy: { photos: number; bytes: number }; storyLinkedPhotos: number; heroProtected: boolean };
+    expect(rep.legacy.photos).toBe(3);
+    expect(rep.storyLinkedPhotos).toBe(1);
+    expect(rep.heroProtected).toBe(true);
+    expect(rep.blockers.join(' ')).toContain('לא חוברה');
+    expect((await admin.post('/api/admin/drive/migration/cleanup', { confirm: 'מחיקה' })).status).toBe(409);
+    expect((await member.get('/api/admin/drive/migration')).status).toBe(403);
+
+    // חיבור הדרייב; תמונת דרייב שמצורפת לסיפור (מהמערכת הקודמת)
+    files = [photo(1), photo(2)];
+    await admin.put('/api/admin/drive', { url: folderUrl });
+    const d1 = await env.DB.prepare('SELECT item_id FROM drive_photos WHERE file_id = ?').bind(fid(1)).first<{ item_id: string }>();
+    await env.DB.prepare('INSERT INTO item_links (story_id, item_id, position) VALUES (?, ?, 6)').bind(story.id, d1!.item_id).run();
+    rep = (await (await admin.get('/api/admin/drive/migration')).json()) as typeof rep;
+    expect(rep.storyLinkedPhotos).toBe(2);
+    expect(rep.blockers.join(' ')).toContain('הפרדת תמונות הסיפורים');
+    expect((await admin.post('/api/admin/drive/migration/cleanup', { confirm: 'מחיקה' })).status).toBe(409);
+
+    // שלב 2: הפרדה — עותקים עצמאיים ב-stories/, והקישורים לגלריה הוסרו
+    const sep = (await (await admin.post('/api/admin/drive/migration/separate')).json()) as { result: { copied: number; failed: number; remaining: number } };
+    expect(sep.result).toEqual({ copied: 2, failed: 0, remaining: 0 });
+    const detail = (await (await member.get(`/api/items/${story.id}`)).json()) as { links: { id: string }[]; storyImages: { fileId: string }[]; coverFileId: string };
+    expect(detail.links.map((l) => l.id)).toEqual([audio.id]);
+    expect(detail.storyImages).toHaveLength(2);
+    const copyKeys = await env.DB.prepare(`SELECT f.r2_key FROM story_images s JOIN files f ON f.id = s.file_id WHERE s.story_id = ?`).bind(story.id).all<{ r2_key: string }>();
+    for (const k of copyKeys.results) {
+      expect(k.r2_key.startsWith('stories/')).toBe(true);
+      expect(await env.MEDIA.head(k.r2_key)).not.toBeNull();
+    }
+
+    // שלב 3: מחיקה — דורש אישור מפורש
+    expect((await admin.post('/api/admin/drive/migration/cleanup', {})).status).toBe(400);
+    const legacyKeys = (await env.DB.prepare(`SELECT id, r2_key, size FROM files WHERE item_id IN (?, ?, ?)`).bind(l1.id, l2.id, l3.id).all<{ id: string; r2_key: string; size: number }>()).results;
+    const clean = (await (await admin.post('/api/admin/drive/migration/cleanup', { confirm: 'מחיקה' })).json()) as {
+      result: { items: number; files: number; bytes: number; remaining: number };
+      report: { legacy: { photos: number }; deleted: { items: number; bytes: number } };
+      integrity: { missingStoryFiles: number; brokenLinks: number; orphanFiles: number };
+    };
+    const heroFile = l3.files[0].id;
+    const expectedBytes = legacyKeys.filter((f) => f.id !== heroFile).reduce((a, f) => a + f.size, 0);
+    expect(clean.result).toMatchObject({ items: 3, files: 3, bytes: expectedBytes, remaining: 0 });
+    expect(clean.report.legacy.photos).toBe(0);
+    expect(clean.report.deleted).toMatchObject({ items: 3, bytes: expectedBytes });
+    expect(clean.integrity).toEqual(expect.objectContaining({ missingStoryFiles: 0, brokenLinks: 0, orphanFiles: 0 }));
+    // הקבצים הישנים נמחקו מ-R2 — חוץ מהתמונה הראשית
+    for (const f of legacyKeys) expect(Boolean(await env.MEDIA.head(f.r2_key))).toBe(f.id === heroFile);
+    expect((await member.get(`/api/files/${heroFile}`)).status).toBe(200);
+    expect(await env.DB.prepare('SELECT COUNT(*) AS n FROM comments WHERE item_id = ?').bind(l1.id).first<{ n: number }>()).toEqual({ n: 0 });
+    // סיפורים, מסמכים, הקלטות ותמונות הדרייב — שלמים
+    const after = (await (await member.get(`/api/items/${story.id}`)).json()) as { storyImages: { fileId: string }[] };
+    expect(after.storyImages).toHaveLength(2);
+    for (const i of after.storyImages) expect((await member.get(`/api/files/${i.fileId}`)).status).toBe(200);
+    expect((await member.get(`/api/items/${doc.id}`)).status).toBe(200);
+    expect((await member.get(`/api/items/${audio.id}`)).status).toBe(200);
+    expect(((await (await member.get('/api/items?kind=photo&limit=10')).json()) as { total: number }).total).toBe(2);
+
+    // הסרה מהדרייב לא פוגעת בעותק של הסיפור
+    files = [photo(2)];
+    await admin.post('/api/admin/drive/sync');
+    const stillThere = (await (await member.get(`/api/items/${story.id}`)).json()) as { storyImages: { fileId: string }[] };
+    expect(stillThere.storyImages).toHaveLength(2);
+    for (const i of stillThere.storyImages) expect((await member.get(`/api/files/${i.fileId}`)).status).toBe(200);
+  });
+
+  it('מפתח ה-API לא נחשף באף תשובה', async () => {
+    const admin = await setupAdmin();
+    files = [photo(1)];
+    const bodies = [
+      await (await admin.put('/api/admin/drive', { url: folderUrl })).text(),
+      await (await admin.get('/api/admin/drive')).text(),
+      await (await admin.get('/api/settings')).text(),
+      await (await admin.get('/api/items?kind=photo')).text(),
+      await (await admin.get('/api/admin/drive/migration')).text(),
+    ];
+    for (const b of bodies) expect(b).not.toContain('test-drive-key');
+  });
+});

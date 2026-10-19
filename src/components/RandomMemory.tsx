@@ -70,18 +70,15 @@ export function RandomMemory() {
           <Icon name="sparkle" size={18} />
           <h2 id="memory-title">זיכרון מסבא</h2>
         </div>
-        <p className="memory__empty-title">הארכיון עדיין ריק — וזה המקום להתחיל.</p>
-        <p className="memory__empty-text">העלו תמונה, הקלטה או כתבו סיפור, וכאן יופיע בכל פעם זיכרון אחר מסבא דודו.</p>
+        <p className="memory__empty-title">עדיין אין תמונות בגלריה.</p>
+        <p className="memory__empty-text">התמונות מגיעות מתיקיית Google Drive המשפחתית — וכאן יופיע בכל פעם זיכרון אחר מסבא דודו.</p>
         <div className="memory__empty-actions">
           <Link to="/c/photo/new" className="btn btn--primary">
             <Icon name="plus" />
-            הוספת תמונה
+            הוספת תמונות
           </Link>
           <Link to="/c/story/new" className="btn btn--ghost">
             כתיבת סיפור
-          </Link>
-          <Link to="/c/audio/new" className="btn btn--ghost">
-            העלאת הקלטה
           </Link>
         </div>
       </section>

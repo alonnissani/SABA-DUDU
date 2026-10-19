@@ -31,6 +31,21 @@ export function ensureSchema(db: D1Database): Promise<void> {
           removed_at    INTEGER
         )`,
       ),
+      // 0004_story_images.sql
+      db.prepare(
+        `CREATE TABLE IF NOT EXISTS story_images (
+          id            TEXT PRIMARY KEY,
+          story_id      TEXT NOT NULL REFERENCES items(id),
+          file_id       TEXT NOT NULL UNIQUE REFERENCES files(id),
+          thumb_file_id TEXT REFERENCES files(id),
+          width         INTEGER,
+          height        INTEGER,
+          position      INTEGER NOT NULL DEFAULT 0,
+          created_by    TEXT NOT NULL REFERENCES users(id),
+          created_at    INTEGER NOT NULL
+        )`,
+      ),
+      db.prepare('CREATE INDEX IF NOT EXISTS idx_story_images_story ON story_images(story_id, position)'),
     ])
     .then(() => undefined)
     .catch((e) => {

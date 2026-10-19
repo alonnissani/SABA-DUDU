@@ -9,6 +9,15 @@ export function parseMediaKind(value: unknown): MediaKind {
   fail(400, 'קטגוריה לא תקינה להעלאת קובץ');
 }
 
+/** נתיב האחסון של תמונות הסיפורים — נפרד לחלוטין מהגלריה (שמגיעה מ-Google Drive) */
+export const STORY_PREFIX = 'stories/';
+
+/** העלאה: קטגוריה רגילה, או ״story״ — תמונה של סיפור (נבדקת כמו תמונה, נשמרת בנתיב הסיפורים) */
+export function parseUploadKind(value: unknown): { kind: MediaKind; story: boolean } {
+  if (value === 'story') return { kind: 'photo', story: true };
+  return { kind: parseMediaKind(value), story: false };
+}
+
 export function parseFileRole(value: unknown): FileRole {
   if (value === undefined || value === null || value === '' || value === 'original') return 'original';
   if (value === 'thumb' || value === 'poster') return value;
@@ -116,8 +125,10 @@ export function extensionFor(mime: string, name: string): string {
 }
 
 /** מפתח אחסון ייחודי — נוצר בשרת בלבד, ולכן קובץ קיים לעולם לא נדרס. */
-export function storageKey(kind: MediaKind, role: FileRole, fileId: string, mime: string, name: string): string {
+export function storageKey(kind: MediaKind, role: FileRole, fileId: string, mime: string, name: string, story = false): string {
   const d = new Date();
   const ym = `${d.getUTCFullYear()}/${String(d.getUTCMonth() + 1).padStart(2, '0')}`;
-  return `${role === 'original' ? 'originals' : 'previews'}/${kind}/${ym}/${fileId}.${extensionFor(mime, name)}`;
+  const folder = role === 'original' ? 'originals' : 'previews';
+  if (story) return `${STORY_PREFIX}${folder}/${ym}/${fileId}.${extensionFor(mime, name)}`;
+  return `${folder}/${kind}/${ym}/${fileId}.${extensionFor(mime, name)}`;
 }

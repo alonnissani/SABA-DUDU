@@ -78,7 +78,8 @@ export async function searchItems(
   if (!words.length) return [];
   const long = words.filter((w) => [...w].length >= 3);
   const short = words.filter((w) => [...w].length < 3);
-  const where: string[] = ['i.deleted_at IS NULL'];
+  // תמונות בגלריה — רק מ-Google Drive
+  const where: string[] = ['i.deleted_at IS NULL', `(i.kind != 'photo' OR EXISTS (SELECT 1 FROM drive_photos dp WHERE dp.item_id = i.id))`];
   const binds: unknown[] = [];
   if (long.length) {
     where.push('search_index MATCH ?');

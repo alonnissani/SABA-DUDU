@@ -1,3 +1,4 @@
+import { driveVirtualId } from '../../shared/drive';
 import { Hono } from 'hono';
 import type { AppEnv } from '../env';
 import type { AdminUser, ArchiveStats, BackupRun, BackupStatus, HeroTraits, InviteInfo, ItemKind } from '../../shared/types';
@@ -178,11 +179,19 @@ adminRoutes.put('/hero', async (c) => {
     if (!f || !f.mime.startsWith('image/')) fail(400, 'יש לבחור קובץ תמונה');
     fileId = f.id;
   } else if (typeof b.itemId === 'string') {
-    const f = await c.env.DB.prepare(
-      "SELECT f.id FROM files f JOIN items i ON i.id = f.item_id WHERE i.id = ? AND i.kind = 'photo' AND f.role = 'original' AND i.deleted_at IS NULL",
+    // תמונה מהגלריה — מ-Google Drive (״קובץ וירטואלי״), או תמונה ישנה שהועלתה לאתר
+    const d = await c.env.DB.prepare(
+      "SELECT d.file_id FROM drive_photos d JOIN items i ON i.id = d.item_id WHERE i.id = ? AND i.deleted_at IS NULL",
     )
       .bind(b.itemId)
-      .first<{ id: string }>();
+      .first<{ file_id: string }>();
+    const f = d
+      ? { id: driveVirtualId(d.file_id, 'original') }
+      : await c.env.DB.prepare(
+          "SELECT f.id FROM files f JOIN items i ON i.id = f.item_id WHERE i.id = ? AND i.kind = 'photo' AND f.role = 'original' AND i.deleted_at IS NULL",
+        )
+          .bind(b.itemId)
+          .first<{ id: string }>();
     if (!f) fail(400, 'התמונה לא נמצאה');
     fileId = f.id;
   } else if (b.clear !== true) {

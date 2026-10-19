@@ -6,7 +6,7 @@ import { sha256Hex } from '../lib/crypto';
 import { fail, intOrNull, newId, now, readJson } from '../lib/http';
 import { fileInfo } from '../lib/items';
 import {
-  checkContent, checkDeclaredFile, cleanFileName, parseFileRole, parseMediaKind, storageKey,
+  checkContent, checkDeclaredFile, cleanFileName, parseFileRole, parseUploadKind, storageKey,
 } from '../lib/validation';
 
 /**
@@ -33,7 +33,7 @@ async function insertFile(
 /** העלאה ישירה של קובץ עד 25MB. גוף הבקשה הוא תוכן הקובץ עצמו. */
 uploadRoutes.post('/direct', async (c) => {
   const user = requireUser(c);
-  const kind = parseMediaKind(c.req.query('kind'));
+  const { kind, story } = parseUploadKind(c.req.query('kind'));
   const role = parseFileRole(c.req.query('role'));
   const name = cleanFileName(c.req.query('name'));
   const declared = Number(c.req.header('content-length') ?? c.req.query('size'));
@@ -43,7 +43,7 @@ uploadRoutes.post('/direct', async (c) => {
   const mime = checkDeclaredFile(kind, role, c.req.header('content-type') ?? null, name, buf.byteLength);
   checkContent(mime, buf.subarray(0, 64));
   const id = newId();
-  const key = storageKey(kind, role, id, mime, name);
+  const key = storageKey(kind, role, id, mime, name, story);
   const sha = await sha256Hex(buf);
   // onlyIf: כתיבה רק אם המפתח עוד לא קיים — הגנה נוספת מפני דריסה
   const put = await c.env.MEDIA.put(key, buf, {
@@ -80,13 +80,13 @@ async function ownUpload(c: { env: AppEnv['Bindings'] }, id: string, userId: str
 uploadRoutes.post('/multipart', async (c) => {
   const user = requireUser(c);
   const body = await readJson(c.req.raw);
-  const kind = parseMediaKind(body.kind);
+  const { kind, story } = parseUploadKind(body.kind);
   const role = parseFileRole(body.role);
   const name = cleanFileName(body.name);
   const size = intOrNull(body.size, 'גודל', 1, Number.MAX_SAFE_INTEGER) ?? 0;
   const mime = checkDeclaredFile(kind, role, typeof body.mime === 'string' ? body.mime : null, name, size);
   const id = newId();
-  const key = storageKey(kind, role, id, mime, name);
+  const key = storageKey(kind, role, id, mime, name, story);
   const mpu = await c.env.MEDIA.createMultipartUpload(key, {
     httpMetadata: { contentType: mime },
     customMetadata: { originalName: encodeURIComponent(name), uploadedBy: user.id },

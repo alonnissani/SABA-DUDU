@@ -2,14 +2,14 @@ import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
 import { Link, Navigate, useNavigate, useParams } from 'react-router';
 import type { ItemKind, ItemSummary, StoryType } from '../../shared/types';
 import { ACCEPT_ATTR, ITEM_KINDS, KIND_LABELS, STORY_TYPES, formatBytes } from '../../shared/constants';
-import { api } from '../api/client';
+import { api, type StoryImageUpload } from '../api/client';
 import { useApp, useLoad, useToast } from '../state';
 import { ErrorBox, Field, Modal, PageHeader, ProgressBar, Spinner } from '../components/Common';
 import { Icon, KIND_ICON } from '../components/Icon';
 import { ItemRowCard } from '../components/ItemCards';
 import { MetaFields, emptyMeta, metaPayload, type MetaValues } from '../components/MetaFields';
 import { fileTitle } from '../lib/media';
-import { kindForFile, precheck, uploadAsItem, type MediaKind, type Stage } from '../lib/uploader';
+import { kindForFile, precheck, uploadAsItem, uploadStoryImage, type MediaKind, type Stage } from '../lib/uploader';
 import { drivePreviewUrl, parseDriveFileId } from '../../shared/drive';
 
 export function AddItemScreen() {
@@ -18,12 +18,14 @@ export function AddItemScreen() {
   if (!kind || !(ITEM_KINDS as string[]).includes(kind)) return <Navigate to="/home" replace />;
   if (kind === 'story') return <StoryForm />;
   if (kind === 'video') return <VideoForm />;
-  if (kind === 'photo' && settings.driveFolderUrl) return <DrivePhotosNotice url={settings.driveFolderUrl} />;
+  // גלריית התמונות מגיעה רק מ-Google Drive — אין העלאה לגלריה דרך האתר
+  if (kind === 'photo') return <DrivePhotosNotice url={settings.driveFolderUrl} />;
   return <MediaForm key={kind} kind={kind as MediaKind} />;
 }
 
 /** כשתיקיית Google Drive מחוברת — תמונות מועלות לדרייב, לא לאתר (בלי עותק כפול) */
-function DrivePhotosNotice({ url }: { url: string }) {
+function DrivePhotosNotice({ url }: { url: string | null }) {
+  const { isAdmin } = useApp();
   return (
     <div className="add">
       <PageHeader title="הוספת תמונות" icon="photo" />
@@ -31,15 +33,30 @@ function DrivePhotosNotice({ url }: { url: string }) {
         <p>
           התמונות של סבא נשמרות בתיקייה המשפחתית ב-Google Drive. מעלים אליה את התמונות — והן מופיעות כאן באתר אוטומטית בסנכרון הבא (עד שעה).
         </p>
-        <p className="muted small">
-          ההעלאה מתבצעת בדרייב לפי ההרשאות שלכם ב-Google. אם אין לכם הרשאה להוסיף קבצים לתיקייה, בקשו אותה ממנהל/ת האתר.
-        </p>
+        {url ? (
+          <p className="muted small">
+            ההעלאה מתבצעת בדרייב לפי ההרשאות שלכם ב-Google. אם אין לכם הרשאה להוסיף קבצים לתיקייה, בקשו אותה ממנהל/ת האתר.
+          </p>
+        ) : (
+          <p className="muted small">
+            {isAdmin ? 'עדיין לא חוברה תיקייה. חברו אותה בהגדרות ← חיבור Google Drive.' : 'הגלריה עדיין לא חוברה לתיקיית Google Drive. מנהל/ת האתר יחבר/תחבר אותה בקרוב.'}
+          </p>
+        )}
         <div className="form__actions">
           <Link to="/c/photo" className="btn btn--ghost">חזרה</Link>
-          <a href={url} target="_blank" rel="noopener noreferrer" className="btn btn--primary btn--lg">
-            <Icon name="upload" />
-            הוספת תמונות לדרייב
-          </a>
+          {url ? (
+            <a href={url} target="_blank" rel="noopener noreferrer" className="btn btn--primary btn--lg">
+              <Icon name="upload" />
+              הוספת תמונות לדרייב
+            </a>
+          ) : (
+            isAdmin && (
+              <Link to="/settings/drive" className="btn btn--primary btn--lg">
+                <Icon name="link" />
+                חיבור Google Drive
+              </Link>
+            )
+          )}
         </div>
       </div>
     </div>
@@ -385,8 +402,14 @@ function StoryForm() {
     setBusy(true);
     try {
       const linkIds = linked.map((l) => l.id);
-      // קבצים חדשים נשמרים גם כפריטים בלשונית המתאימה, ומקושרים לסיפור
+      const images: StoryImageUpload[] = [];
       for (const f of newFiles) {
+        // תמונות נשמרות עם הסיפור עצמו (לא בגלריה); הקלטות, סרטונים ומסמכים — כפריטים בלשונית שלהם, מקושרים לסיפור
+        if (f.kind === 'photo') {
+          images.push(await uploadStoryImage(f.file, (p) => setNewFiles((prev) => prev.map((x) => (x.key === f.key ? { ...x, progress: p } : x)))));
+          setNewFiles((prev) => prev.map((x) => (x.key === f.key ? { ...x, progress: 1 } : x)));
+          continue;
+        }
         const item = await uploadAsItem(
           f.kind,
           f.file,
@@ -397,7 +420,7 @@ function StoryForm() {
         setNewFiles((prev) => prev.filter((x) => x.key !== f.key));
         setLinked((prev) => [...prev, item]);
       }
-      const story = await api.create({ kind: 'story', title: title.trim(), body, storyType, ...metaPayload(meta), description: undefined, linkIds });
+      const story = await api.create({ kind: 'story', title: title.trim(), body, storyType, ...metaPayload(meta), description: undefined, linkIds, images });
       toast('הסיפור פורסם — תודה ששיתפת!');
       navigate(`/item/${story.id}`, { replace: true });
     } catch (err) {
@@ -431,7 +454,8 @@ function StoryForm() {
         <MetaFields value={meta} onChange={setMeta} suggestions={tags.data?.map((t) => t.name)} hideDescription peopleLabel="אנשים בסיפור" />
 
         <div className="field">
-          <span className="field__label">צירוף תמונות או הקלטות (לא חובה)</span>
+          <span className="field__label">תמונות לסיפור, הקלטות או סרטונים (לא חובה)</span>
+          <span className="field__hint">תמונות שמעלים כאן נשמרות עם הסיפור בלבד — הן לא מתווספות לגלריה.</span>
           <div className="attach-actions">
             <button type="button" className="btn btn--ghost" onClick={() => setPicker(true)} disabled={busy}>
               <Icon name="link" />
@@ -460,7 +484,7 @@ function StoryForm() {
                 <li key={f.key} className="attach-new">
                   <Icon name={KIND_ICON[f.kind]} />
                   <span className="attach-new__name">{f.file.name}</span>
-                  {busy ? <ProgressBar value={f.progress} /> : f.error ? <span className="pending__error">{f.error}</span> : <span className="meta__muted">יועלה בשמירה ({KIND_LABELS[f.kind].singular})</span>}
+                  {busy ? <ProgressBar value={f.progress} /> : f.error ? <span className="pending__error">{f.error}</span> : <span className="meta__muted">יועלה בשמירה ({f.kind === 'photo' ? 'תמונה לסיפור' : KIND_LABELS[f.kind].singular})</span>}
                   {!busy && (
                     <button type="button" className="icon-btn" onClick={() => setNewFiles((p) => p.filter((x) => x.key !== f.key))} aria-label={`הסרת ${f.file.name}`}>
                       <Icon name="close" />
@@ -493,20 +517,20 @@ function StoryForm() {
   );
 }
 
-/** בחירת פריטים מהארכיון לצירוף לסיפור. עם onlyKind — רק מסוג אחד (למשל תמונת סיפור). */
-export function AttachPicker({ selected, onPick, onClose, onlyKind }: { selected: string[]; onPick: (i: ItemSummary) => void; onClose: () => void; onlyKind?: ItemKind }) {
-  const [kind, setKind] = useState<ItemKind | ''>(onlyKind ?? '');
+/** בחירת פריטים מהארכיון לצירוף לסיפור (הקלטות, סרטונים ומסמכים — תמונות הגלריה לא מצורפות לסיפורים) */
+function AttachPicker({ selected, onPick, onClose }: { selected: string[]; onPick: (i: ItemSummary) => void; onClose: () => void }) {
+  const [kind, setKind] = useState<ItemKind | ''>('');
   const list = useLoad(() => api.attachable(kind || undefined), [kind]);
   const sel = useMemo(() => new Set(selected), [selected]);
   return (
-    <Modal title={onlyKind === 'photo' ? 'בחירת תמונה מהאלבום' : 'בחירת פריטים לצירוף'} onClose={onClose} wide>
-      {!onlyKind && <div className="chips chips--tabs" role="tablist">
-        {(['', 'photo', 'audio', 'video', 'document'] as const).map((k) => (
+    <Modal title="בחירת פריטים לצירוף" onClose={onClose} wide>
+      <div className="chips chips--tabs" role="tablist">
+        {(['', 'audio', 'video', 'document'] as const).map((k) => (
           <button key={k} type="button" role="tab" aria-selected={kind === k} className={`chip ${kind === k ? 'is-active' : ''}`} onClick={() => setKind(k)}>
             {k ? KIND_LABELS[k].plural : 'הכול'}
           </button>
         ))}
-      </div>}
+      </div>
       {list.loading ? (
         <Spinner />
       ) : list.error ? (
