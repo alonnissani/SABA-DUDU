@@ -41,7 +41,7 @@ export function TagList({ tags }: { tags: string[] }) {
 }
 
 /** תמונה בגלריה — בסגנון תמונה מודבקת באלבום. */
-export function PhotoTile({ item, onOpen, priority }: { item: ItemSummary; onOpen: () => void; priority?: boolean }) {
+export function PhotoTile({ item, onOpen, priority, onDelete }: { item: ItemSummary; onOpen: () => void; priority?: boolean; onDelete?: () => void }) {
   const src = previewUrl(item);
   const [loaded, setLoaded] = useState(false);
   const o = originalOf(item);
@@ -50,6 +50,11 @@ export function PhotoTile({ item, onOpen, priority }: { item: ItemSummary; onOpe
   const date = itemDateLabel(item);
   return (
     <figure className="photo-tile">
+      {onDelete && (
+        <button className="photo-tile__delete" onClick={onDelete} aria-label={title ? `מחיקת התמונה: ${title}` : 'מחיקת התמונה'}>
+          <Icon name="trash" size={17} />
+        </button>
+      )}
       <button className="photo-tile__btn" onClick={onOpen} aria-label={title ? `פתיחת התמונה: ${title}` : 'פתיחת התמונה'}>
         <span className={`photo-tile__img ${loaded || !src ? 'is-loaded' : ''}`} style={{ aspectRatio: ratio }}>
           {src ? (
@@ -77,28 +82,40 @@ export function PhotoTile({ item, onOpen, priority }: { item: ItemSummary; onOpe
   );
 }
 
-export function VideoCard({ item }: { item: ItemSummary }) {
+/** כרטיס סרטון. עם onPlay — לחיצה פותחת את הנגן על כל המסך; בלי — קישור לדף הסרטון */
+export function VideoCard({ item, onPlay }: { item: ItemSummary; onPlay?: () => void }) {
   const src = previewUrl(item);
   const o = originalOf(item);
-  return (
-    <Link to={`/item/${item.id}`} className="card media-card">
+  const content = (
+    <>
       <span className="media-card__thumb">
         {src ? (
-          <SafeImg src={src} alt="" loading="lazy" decoding="async" fallback={<span className="media-card__noprev"><Icon name="video" size={36} /></span>} />
+          <SafeImg src={src} alt="" loading="lazy" decoding="async" fallback={<span className="media-card__noprev"><Icon name="video" size={30} /></span>} />
         ) : (
-          <span className="media-card__noprev"><Icon name="video" size={36} /></span>
+          <span className="media-card__noprev"><Icon name="video" size={30} /></span>
         )}
-        {item.externalVideo && <span className="media-card__source">Google Drive</span>}
+        {item.externalVideo && <span className="media-card__source">Drive</span>}
         <span className="media-card__play" aria-hidden="true">
-          <Icon name="play" size={26} />
+          <Icon name="play" size={20} />
         </span>
         {o?.duration ? <span className="media-card__dur">{formatDuration(o.duration)}</span> : null}
       </span>
       <span className="media-card__body">
         <span className="card__title">{item.title}</span>
-        {item.description && <span className="card__desc">{item.description}</span>}
-        <ItemMeta item={item} />
+        {itemDateLabel(item) && <span className="media-card__date">{itemDateLabel(item)}</span>}
       </span>
+    </>
+  );
+  if (onPlay) {
+    return (
+      <button type="button" className="card media-card" onClick={onPlay} aria-label={`צפייה בסרטון: ${item.title}`}>
+        {content}
+      </button>
+    );
+  }
+  return (
+    <Link to={`/item/${item.id}`} className="card media-card">
+      {content}
     </Link>
   );
 }

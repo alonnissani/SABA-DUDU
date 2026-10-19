@@ -17,6 +17,7 @@ const EMPTY_SETTINGS: SiteSettings = {
   subtitle: DEFAULT_SUBTITLE,
   heroFileId: null,
   heroTraits: { quotes: [], symbols: [], details: [] },
+  homePhotos: [],
 };
 
 const Ctx = createContext<AppState | null>(null);

@@ -3,7 +3,7 @@ import { ITEM_KINDS, KIND_LABELS } from '../../shared/constants';
 import { useApp } from '../state';
 import { RandomMemory } from '../components/RandomMemory';
 import { Icon, KIND_ICON } from '../components/Icon';
-import { HeroAvatar } from '../components/Shell';
+import { HomePortrait } from '../components/HomePortrait';
 
 const KIND_BLURB = {
   photo: 'אלבום התמונות המשפחתי',
@@ -14,14 +14,15 @@ const KIND_BLURB = {
 } as const;
 
 export function HomeScreen() {
-  const { settings, user } = useApp();
+  const { settings, user, isAdmin } = useApp();
+  const firstName = user?.name.trim().split(/\s+/)[0] ?? '';
   return (
     <div className="home">
       <section className="home__hello">
-        <HeroAvatar size={72} />
+        <HomePortrait photos={settings.homePhotos} size={88} isAdmin={isAdmin} />
         <div>
           <h1 className="home__title">{settings.siteTitle}</h1>
-          <p className="home__sub">שלום {user?.name}, טוב שבאת להיזכר.</p>
+          <p className="home__sub">שלום {firstName}, טוב שבאת להיזכר.</p>
         </div>
         <Link to="/search" className="home__search">
           <Icon name="search" />

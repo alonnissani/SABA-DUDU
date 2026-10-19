@@ -127,6 +127,8 @@ test('העלאת סרטון ומסמך', async ({ page }) => {
   await expect(page.locator('.media-card__dur')).toHaveText('0:03');
   await shot(page, '08-videos');
   await page.locator('.media-card').first().click();
+  await expect(page.locator('.theater video')).toBeVisible();
+  await page.getByRole('link', { name: 'לדף הסרטון ותגובות' }).click();
   await expect(page.locator('video.video')).toBeVisible();
   const playable = await page.locator('video.video').evaluate((v: HTMLVideoElement) => new Promise((r) => {
     if (v.readyState >= 1) r(v.duration);
@@ -325,7 +327,7 @@ test('גלריה: ממוזערות בלבד, המקור נטען רק בפתיח
   expect(thumb.size).toBeLessThan(orig.size / 5);
 
   const cols = await page.locator('.gallery').evaluate((el) => getComputedStyle(el).columnCount);
-  expect(cols).toBe('2');
+  expect(cols).toBe('3');
 
   // פתיחה — רק אז נטען המקור
   await page.locator('.photo-tile', { hasText: 'צילום גדול' }).locator('.photo-tile__btn').click();
@@ -383,7 +385,34 @@ test('גלריה: סדר אקראי בכל כניסה, טעינה הדרגתית
 test('סרטונים: תצוגה מלאה ביחס המקורי וכפתור מסך מלא', async ({ page }) => {
   await login(page);
   await page.goto('/c/video');
+  // 2 כרטיסים בשורה ב-390px
+  const cols = await page.locator('.grid--media').evaluate((el) => getComputedStyle(el).gridTemplateColumns.split(' ').length);
+  expect(cols).toBe(2);
+  // לחיצה על כרטיס — מסך מלא מיד, בלי לחיצה נוספת
   await page.locator('.media-card', { hasNot: page.locator('.media-card__source') }).first().click();
+  const tv = page.locator('.theater video');
+  await expect(tv).toBeVisible();
+  await expect.poll(() => page.evaluate(() => document.fullscreenElement?.tagName ?? null)).toBe('HTML');
+  await tv.evaluate((v: HTMLVideoElement) => (v.readyState >= 1 ? null : new Promise((r) => v.addEventListener('loadedmetadata', r))));
+  const t = await tv.evaluate((v: HTMLVideoElement) => {
+    const r = v.getBoundingClientRect();
+    const s = Math.min(r.width / v.videoWidth, r.height / v.videoHeight);
+    return { fit: getComputedStyle(v).objectFit, w: v.videoWidth * s, h: v.videoHeight * s, bw: r.width, bh: r.height, vw: innerWidth, vh: innerHeight };
+  });
+  expect(t.fit).toBe('contain');
+  // התוכן נכנס כולו לתוך הנגן (ללא חיתוך) והנגן לא חורג מהמסך
+  expect(t.w).toBeLessThanOrEqual(t.bw + 1);
+  expect(t.h).toBeLessThanOrEqual(t.bh + 1);
+  expect(t.bw).toBeLessThanOrEqual(t.vw);
+  await page.screenshot({ path: path.join(SHOTS, '29-video-theater.png') });
+  await page.getByRole('button', { name: 'סגירה' }).click();
+  await expect(page.locator('.theater')).toHaveCount(0);
+  await expect.poll(() => page.evaluate(() => document.fullscreenElement)).toBeNull();
+
+  // דף הסרטון עצמו — כפתור מסך מלא
+  await page.locator('.media-card', { hasNot: page.locator('.media-card__source') }).first().click();
+  await page.getByRole('link', { name: 'לדף הסרטון ותגובות' }).click();
+  await expect.poll(() => page.evaluate(() => document.fullscreenElement)).toBeNull();
   const video = page.locator('video.video');
   await expect(video).toBeVisible();
   await video.evaluate((v: HTMLVideoElement) => (v.readyState >= 1 ? null : new Promise((r) => v.addEventListener('loadedmetadata', r))));
@@ -399,9 +428,13 @@ test('סרטונים: תצוגה מלאה ביחס המקורי וכפתור מ�
   await expect.poll(() => page.evaluate(() => document.fullscreenElement?.tagName ?? null)).toBe('VIDEO');
   await page.evaluate(() => document.exitFullscreen());
 
-  // סרטון Google Drive — מסך מלא של הנגן המוטמע
+  // סרטון Google Drive — לחיצה בגלריה פותחת מסך מלא עם הנגן המוטמע
   await page.goto('/c/video');
   await page.locator('.media-card', { has: page.locator('.media-card__source') }).first().click();
+  await expect(page.locator('.theater__frame iframe')).toBeVisible();
+  await expect.poll(() => page.evaluate(() => document.fullscreenElement?.tagName ?? null)).toBe('HTML');
+  await expect(page.getByRole('link', { name: 'פתיחה ב-Google Drive' })).toBeVisible();
+  await page.getByRole('link', { name: 'לדף הסרטון ותגובות' }).click();
   await expect(page.locator('.drive-frame iframe')).toBeVisible();
   await page.getByRole('button', { name: 'צפייה במסך מלא' }).click();
   await expect.poll(() => page.evaluate(() => document.fullscreenElement?.className ?? null)).toContain('drive-frame');
@@ -430,6 +463,75 @@ test('יצירת ממוזערות לתמונות קיימות — המקור ל�
   expect(served.equals(jpg)).toBe(true);
 });
 
+test('מחיקת תמונה מהגלריה (מנהל) — עם אישור ועדכון מיידי', async ({ page }) => {
+  await login(page);
+  await page.goto('/c/photo?sort=new');
+  const tiles = page.locator('.photo-tile');
+  await expect(tiles.first().locator('img')).toBeVisible();
+  const totalOf = async () => Number(/\d+/.exec((await page.locator('.page-head__sub').textContent()) ?? '')![0]);
+  const before = await totalOf();
+  const src = await tiles.first().locator('img').getAttribute('src');
+  await tiles.first().locator('.photo-tile__delete').click();
+  const dialog = page.locator('dialog');
+  await expect(dialog).toContainText('סל המחזור');
+  await dialog.getByRole('button', { name: 'ביטול' }).click();
+  await expect(page.locator(`.photo-tile img[src="${src}"]`)).toHaveCount(1);
+  await tiles.first().locator('.photo-tile__delete').click();
+  await page.locator('dialog').getByRole('button', { name: 'מחיקה' }).click();
+  await expect(page.locator(`.photo-tile img[src="${src}"]`)).toHaveCount(0);
+  await expect.poll(totalOf).toBe(before - 1);
+  await shot(page, '33-gallery-dense-delete');
+  // משוחזר מסל המחזור — כדי לא לשנות את שאר הבדיקות
+  await page.goto('/settings/content');
+  await page.getByRole('button', { name: 'שחזור' }).first().click();
+  await expect(page.getByText('סל המחזור ריק.')).toBeVisible();
+});
+
+test('דף הבית: תמונה מתחלפת מהאוסף, שונה מהכותרת, וברכה עם שם פרטי', async ({ page }) => {
+  await login(page);
+  const origin = new URL(page.url()).origin;
+  const photos = ((await (await page.request.get('/api/items?kind=photo&limit=100')).json()) as { items: { id: string; title: string; files: { id: string; role: string; width: number | null }[] }[] }).items;
+  const withThumb = photos.filter((p) => p.files.some((f) => f.role === 'thumb') && (p.files.find((f) => f.role === 'original')?.width ?? 0) > 100).slice(0, 4);
+  expect(withThumb.length).toBeGreaterThanOrEqual(3);
+  // התמונה הראשית (בכותרת) היא אחת מהן — ולכן אסור שתוצג בעיגול
+  await page.request.put('/api/admin/hero', { data: { itemId: withThumb[0].id }, headers: { origin } });
+  const res = await page.request.put('/api/admin/settings', {
+    data: { homePhotos: withThumb.map((p, i) => ({ itemId: p.id, x: 50, y: 30 + i, zoom: 1.2 })) },
+    headers: { origin },
+  });
+  expect(res.status()).toBe(200);
+
+  const seen: string[] = [];
+  for (let i = 0; i < 6; i++) {
+    await page.goto('/home');
+    const portrait = page.locator('.home__hello .portrait');
+    await expect(portrait.locator('img.is-loaded')).toBeVisible();
+    seen.push((await portrait.getAttribute('data-item'))!);
+  }
+  expect(seen).not.toContain(withThumb[0].id);
+  for (let i = 1; i < seen.length; i++) expect(seen[i]).not.toBe(seen[i - 1]);
+  expect(new Set(seen).size).toBeGreaterThanOrEqual(2);
+  const headerSrc = await page.locator('.topbar .avatar img').getAttribute('src');
+  const portraitSrc = await page.locator('.home__hello .portrait img').getAttribute('src');
+  expect(portraitSrc).not.toBe(headerSrc);
+  await expect(page.locator('.home__sub')).toHaveText('שלום מנהל, טוב שבאת להיזכר.');
+  await shot(page, '31-home-portrait');
+
+  // הגדרות: האוסף מוצג ונפתח לכיוון
+  await page.goto('/settings/home-photos');
+  await expect(page.locator('.home-photos__item')).toHaveCount(withThumb.length - 1);
+  await page.getByRole('button', { name: 'כיוון' }).first().click();
+  await page.locator('.focus-editor__image img').click({ position: { x: 10, y: 10 } });
+  await page.screenshot({ path: path.join(SHOTS, '32-focus-editor.png') });
+  await page.locator('dialog').getByRole('button', { name: 'סיום' }).click();
+  await page.getByRole('button', { name: 'שמירת האוסף' }).click();
+  await expect(page.getByText('האוסף נשמר')).toBeVisible();
+
+  // ניקוי: בלי תמונה ראשית ואוסף (כדי שבדיקות אחרות יתחילו ממצב נקי)
+  await page.request.put('/api/admin/hero', { data: { clear: true }, headers: { origin } });
+  await page.request.put('/api/admin/settings', { data: { homePhotos: [] }, headers: { origin } });
+});
+
 test('בן משפחה מוזמן — אין לו אפשרות מחיקה, והשרת חוסם', async ({ page, browser }) => {
   await login(page);
   await page.goto('/settings/invites');
@@ -447,6 +549,9 @@ test('בן משפחה מוזמן — אין לו אפשרות מחיקה, והש
   await member.getByRole('button', { name: 'הצטרפות' }).click();
   await expect(member).toHaveURL(/\/home$/);
 
+  await member.goto('/c/photo');
+  await expect(member.locator('.photo-tile').first()).toBeVisible();
+  await expect(member.locator('.photo-tile__delete')).toHaveCount(0);
   await member.goto('/c/story');
   await member.locator('.story-card').first().click();
   await expect(member.getByRole('button', { name: 'גם אני זוכר את זה' })).toBeVisible();
@@ -519,8 +624,14 @@ test.describe('מחשב', () => {
     await shot(page, '17-desktop-home');
     await page.goto('/c/photo');
     await page.waitForTimeout(600);
-    expect(await page.locator('.gallery').evaluate((el) => getComputedStyle(el).columnCount)).toBe('5');
+    expect(await page.locator('.gallery').evaluate((el) => getComputedStyle(el).columnCount)).toBe('7');
     await shot(page, '18-desktop-gallery');
+    await page.goto('/c/video');
+    expect(await page.locator('.grid--media').evaluate((el) => getComputedStyle(el).gridTemplateColumns.split(' ').length)).toBe(4);
+    await shot(page, '30-desktop-videos');
+    await page.setViewportSize({ width: 768, height: 1000 });
+    expect(await page.locator('.grid--media').evaluate((el) => getComputedStyle(el).gridTemplateColumns.split(' ').length)).toBe(3);
+    await page.setViewportSize({ width: 1366, height: 900 });
     await page.goto('/settings/backups');
     await shot(page, '19-desktop-backups');
     await page.goto('/');

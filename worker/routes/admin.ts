@@ -5,7 +5,7 @@ import { ITEM_KINDS } from '../../shared/constants';
 import { requireAdmin, sessionCache } from '../lib/auth';
 import { audit } from '../lib/audit';
 import { randomToken, sha256Hex } from '../lib/crypto';
-import { fail, intOrNull, newId, now, readJson, str } from '../lib/http';
+import { fail, intOrNull, newId, now, placeholders, readJson, str } from '../lib/http';
 import { reindexItems } from '../lib/search';
 import { setSetting } from '../lib/settings';
 import { runBackup } from '../lib/backup';
@@ -135,12 +135,33 @@ function cleanTraits(v: unknown): HeroTraits {
   };
 }
 
+/** אוסף ״תמונות לדף הבית״: רק תמונות קיימות, מיקוד 0–100 והגדלה 1–3 */
+async function cleanHomePhotos(db: D1Database, v: unknown): Promise<{ itemId: string; x: number; y: number; zoom: number }[]> {
+  if (!Array.isArray(v)) fail(400, 'רשימת תמונות לא תקינה');
+  if (v.length > 100) fail(400, 'אפשר לבחור עד 100 תמונות');
+  const num = (x: unknown, min: number, max: number, def: number) =>
+    typeof x === 'number' && Number.isFinite(x) ? Math.min(max, Math.max(min, Math.round(x * 100) / 100)) : def;
+  const seen = new Set<string>();
+  const list = (v as Record<string, unknown>[])
+    .filter((p) => p && typeof p.itemId === 'string' && !seen.has(p.itemId as string) && seen.add(p.itemId as string))
+    .map((p) => ({ itemId: p.itemId as string, x: num(p.x, 0, 100, 50), y: num(p.y, 0, 100, 35), zoom: num(p.zoom, 1, 3, 1) }));
+  if (!list.length) return [];
+  const found = await db
+    .prepare(`SELECT id FROM items WHERE id IN (${placeholders(list.length)}) AND kind = 'photo' AND deleted_at IS NULL`)
+    .bind(...list.map((p) => p.itemId))
+    .all<{ id: string }>();
+  const ok = new Set(found.results.map((r) => r.id));
+  if (list.some((p) => !ok.has(p.itemId))) fail(400, 'חלק מהתמונות שנבחרו לא נמצאו');
+  return list;
+}
+
 adminRoutes.put('/settings', async (c) => {
   const admin = requireAdmin(c);
   const b = await readJson(c.req.raw);
   if (b.siteTitle !== undefined) await setSetting(c.env.DB, 'site_title', str(b.siteTitle, 60, 'שם האתר', true)!, admin.id);
   if (b.subtitle !== undefined) await setSetting(c.env.DB, 'subtitle', str(b.subtitle, 160, 'כותרת משנה') ?? '', admin.id);
   if (b.heroTraits !== undefined) await setSetting(c.env.DB, 'hero_traits', JSON.stringify(cleanTraits(b.heroTraits)), admin.id);
+  if (b.homePhotos !== undefined) await setSetting(c.env.DB, 'home_photos', JSON.stringify(await cleanHomePhotos(c.env.DB, b.homePhotos)), admin.id);
   await audit(c.env.DB, admin.id, 'settings.update', 'settings', null);
   return c.json({ ok: true });
 });

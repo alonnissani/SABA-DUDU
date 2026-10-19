@@ -437,3 +437,34 @@ describe('תמונות ממוזערות לתמונות קיימות', () => {
     expect(((await (await admin.get('/api/admin/thumbs/missing')).json()) as unknown[]).length).toBe(0);
   });
 });
+
+describe('תמונות לדף הבית', () => {
+  it('מנהל שומר אוסף עם מיקוד; התמונה הראשית ותמונות שנמחקו לא מוחזרות; משתמש רגיל לא יכול לשנות', async () => {
+    const admin = await setupAdmin();
+    const member = await inviteMember(admin);
+    const a = await createMedia(admin, 'photo', PNG, 'a.png', 'image/png', { title: 'א' });
+    const b = await createMedia(admin, 'photo', PNG, 'b.png', 'image/png', { title: 'ב' });
+    const c = await createMedia(admin, 'photo', PNG, 'c.png', 'image/png', { title: 'ג' });
+    const story = (await (await admin.post('/api/items', { kind: 'story', title: 's', body: 'x', storyType: 'family' })).json()) as { id: string };
+
+    expect((await member.put('/api/admin/settings', { homePhotos: [{ itemId: a.id }] })).status).toBe(403);
+    expect((await admin.put('/api/admin/settings', { homePhotos: [{ itemId: story.id }] })).status).toBe(400);
+    expect((await admin.put('/api/admin/settings', { homePhotos: 'x' })).status).toBe(400);
+
+    const save = await admin.put('/api/admin/settings', {
+      homePhotos: [{ itemId: a.id, x: 40, y: 20, zoom: 1.5 }, { itemId: b.id, x: 500, y: -3, zoom: 9 }, { itemId: c.id }, { itemId: a.id }],
+    });
+    expect(save.status).toBe(200);
+    let s = (await (await member.get('/api/settings')).json()) as { homePhotos: { itemId: string; fileId: string; x: number; y: number; zoom: number }[] };
+    expect(s.homePhotos.map((p) => p.itemId)).toEqual([a.id, b.id, c.id]);
+    expect(s.homePhotos[0]).toMatchObject({ x: 40, y: 20, zoom: 1.5, fileId: a.files[0].id });
+    expect(s.homePhotos[1]).toMatchObject({ x: 100, y: 0, zoom: 3 });
+
+    // התמונה הראשית (בכותרת) לא חוזרת באוסף
+    await admin.put('/api/admin/hero', { itemId: b.id });
+    // תמונה שנמחקה לא מוחזרת
+    await admin.del(`/api/items/${c.id}`);
+    s = (await (await member.get('/api/settings')).json()) as typeof s;
+    expect(s.homePhotos.map((p) => p.itemId)).toEqual([a.id]);
+  });
+});

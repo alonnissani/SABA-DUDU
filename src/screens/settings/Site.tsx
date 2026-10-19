@@ -5,7 +5,7 @@ import { resolveMime } from '../../../shared/constants';
 import { useApp, useLoad, useToast } from '../../state';
 import { ErrorBox, Field, Modal, ProgressBar, Spinner } from '../../components/Common';
 import { Icon } from '../../components/Icon';
-import { accessibleTitle, displayTitle, previewUrl } from '../../lib/media';
+import { accessibleTitle, displayTitle, originalOf, previewUrl } from '../../lib/media';
 import { precheck } from '../../lib/uploader';
 
 export function HeroSection() {
@@ -218,5 +218,196 @@ export function SiteSection() {
         <button className="btn btn--primary btn--lg" disabled={busy}>{busy ? 'שומר…' : 'שמירת ההגדרות'}</button>
       </div>
     </form>
+  );
+}
+
+// ---------- תמונות לדף הבית ----------
+
+interface HomeEntry {
+  itemId: string;
+  x: number;
+  y: number;
+  zoom: number;
+  src: string;
+}
+
+function Circle({ entry, size }: { entry: HomeEntry; size: number }) {
+  return (
+    <span className="portrait" style={{ width: size, height: size }}>
+      <img
+        src={entry.src}
+        alt=""
+        className="is-loaded"
+        style={{ objectPosition: `${entry.x}% ${entry.y}%`, transformOrigin: `${entry.x}% ${entry.y}%`, transform: entry.zoom > 1 ? `scale(${entry.zoom})` : undefined }}
+      />
+    </span>
+  );
+}
+
+/**
+ * אוסף התמונות שמתחלפות בעיגול הגדול בדף הבית. לכל תמונה המנהל מסמן היכן הפנים ומגדיל לפי הצורך,
+ * כדי שהפנים יישבו היטב בעיגול. התמונה הראשית (בכותרת) לא נכללת, כדי שלא תופיע פעמיים.
+ */
+export function HomePhotosSection() {
+  const { settings, refreshSettings } = useApp();
+  const toast = useToast();
+  const [entries, setEntries] = useState<HomeEntry[]>(() => settings.homePhotos.map((p) => ({ ...p, src: fileUrl(p.fileId) })));
+  const [picking, setPicking] = useState(false);
+  const [editing, setEditing] = useState<number | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  const save = async () => {
+    setBusy(true);
+    try {
+      await api.admin.saveSettings({ homePhotos: entries.map(({ itemId, x, y, zoom }) => ({ itemId, x, y, zoom })) });
+      await refreshSettings();
+      toast('האוסף נשמר');
+    } catch (err) {
+      toast((err as Error).message, 'error');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="stack">
+      <div className="panel">
+        <p className="muted">
+          בכל כניסה לדף הבית העיגול הגדול שליד הברכה מציג תמונה אחרת מהאוסף הזה, בלי לחזור על התמונה הקודמת. התמונה הקטנה בכותרת קבועה ואינה משתתפת.
+          מומלץ לבחור תמונות שבהן הפנים של סבא ברורות, וללחוץ ״כיוון״ כדי לסמן את מקום הפנים.
+        </p>
+        <div className="form__actions form__actions--start">
+          <button className="btn btn--ghost" onClick={() => setPicking(true)}>
+            <Icon name="plus" />
+            הוספת תמונות מהאלבום
+          </button>
+        </div>
+      </div>
+
+      {entries.length === 0 ? (
+        <p className="muted-center">עדיין לא נבחרו תמונות. עד אז יוצג בעיגול סמל ״ד״.</p>
+      ) : (
+        <ul className="home-photos">
+          {entries.map((e, i) => (
+            <li key={e.itemId} className="home-photos__item">
+              <Circle entry={e} size={96} />
+              <div className="home-photos__actions">
+                <button className="btn btn--ghost btn--sm" onClick={() => setEditing(i)}>
+                  כיוון
+                </button>
+                <button className="btn btn--text btn--sm" onClick={() => setEntries((p) => p.filter((_, j) => j !== i))}>
+                  הסרה
+                </button>
+              </div>
+            </li>
+          ))}
+        </ul>
+      )}
+
+      <div className="form__actions form__actions--sticky">
+        <button className="btn btn--primary btn--lg" onClick={save} disabled={busy}>
+          {busy ? 'שומר…' : 'שמירת האוסף'}
+        </button>
+      </div>
+
+      {picking && (
+        <MultiPhotoPicker
+          selected={entries.map((e) => e.itemId)}
+          heroFileId={settings.heroFileId}
+          onClose={() => setPicking(false)}
+          onToggle={(item, src) =>
+            setEntries((prev) =>
+              prev.some((e) => e.itemId === item) ? prev.filter((e) => e.itemId !== item) : [...prev, { itemId: item, x: 50, y: 35, zoom: 1, src }],
+            )
+          }
+        />
+      )}
+      {editing !== null && entries[editing] && (
+        <FocusEditor
+          entry={entries[editing]}
+          onClose={() => setEditing(null)}
+          onChange={(next) => setEntries((prev) => prev.map((e, j) => (j === editing ? next : e)))}
+        />
+      )}
+    </div>
+  );
+}
+
+function MultiPhotoPicker({ selected, heroFileId, onToggle, onClose }: {
+  selected: string[];
+  heroFileId: string | null;
+  onToggle: (itemId: string, src: string) => void;
+  onClose: () => void;
+}) {
+  const photos = useLoad(() => api.list({ kind: 'photo', limit: 100 }), []);
+  const sel = new Set(selected);
+  const list = (photos.data?.items ?? []).filter((p) => originalOf(p)?.id !== heroFileId && previewUrl(p));
+  return (
+    <Modal title="בחירת תמונות לדף הבית" onClose={onClose} wide>
+      {photos.loading ? (
+        <Spinner />
+      ) : photos.error ? (
+        <ErrorBox message={photos.error} />
+      ) : !list.length ? (
+        <p className="muted-center">אין תמונות זמינות באלבום.</p>
+      ) : (
+        <div className="pick-grid">
+          {list.map((p) => (
+            <button
+              key={p.id}
+              className={`pick-grid__btn ${sel.has(p.id) ? 'is-selected' : ''}`}
+              onClick={() => onToggle(p.id, previewUrl(p)!)}
+              aria-pressed={sel.has(p.id)}
+              aria-label={`${sel.has(p.id) ? 'הסרת' : 'בחירת'} ${accessibleTitle(p)}`}
+            >
+              <img src={previewUrl(p)!} alt="" loading="lazy" />
+              {sel.has(p.id) && (
+                <span className="pick-grid__check" aria-hidden="true">
+                  <Icon name="check" size={18} />
+                </span>
+              )}
+            </button>
+          ))}
+        </div>
+      )}
+      <div className="form__actions">
+        <button className="btn btn--primary" onClick={onClose}>
+          סיום
+        </button>
+      </div>
+    </Modal>
+  );
+}
+
+/** סימון מקום הפנים: הקשה על התמונה קובעת את המרכז, והמחוון מגדיל */
+function FocusEditor({ entry, onChange, onClose }: { entry: HomeEntry; onChange: (e: HomeEntry) => void; onClose: () => void }) {
+  const setFromPointer = (ev: React.PointerEvent<HTMLImageElement>) => {
+    const r = ev.currentTarget.getBoundingClientRect();
+    const x = Math.round(((ev.clientX - r.left) / r.width) * 100);
+    const y = Math.round(((ev.clientY - r.top) / r.height) * 100);
+    onChange({ ...entry, x: Math.min(100, Math.max(0, x)), y: Math.min(100, Math.max(0, y)) });
+  };
+  return (
+    <Modal title="כיוון התמונה בעיגול" onClose={onClose} wide>
+      <p className="muted">הקישו על הפנים של סבא בתמונה. אפשר להגדיל אם הפנים קטנות.</p>
+      <div className="focus-editor">
+        <div className="focus-editor__image">
+          <img src={entry.src} alt="" onPointerDown={setFromPointer} draggable={false} />
+          <span className="focus-editor__dot" style={{ left: `${entry.x}%`, top: `${entry.y}%` }} aria-hidden="true" />
+        </div>
+        <div className="focus-editor__side">
+          <Circle entry={entry} size={140} />
+          <label className="field">
+            <span className="field__label">הגדלה</span>
+            <input type="range" min={1} max={3} step={0.1} value={entry.zoom} onChange={(e) => onChange({ ...entry, zoom: Number(e.target.value) })} />
+          </label>
+        </div>
+      </div>
+      <div className="form__actions">
+        <button className="btn btn--primary" onClick={onClose}>
+          סיום
+        </button>
+      </div>
+    </Modal>
   );
 }

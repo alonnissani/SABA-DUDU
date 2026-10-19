@@ -3,11 +3,13 @@ import { Link, Navigate, useParams, useSearchParams } from 'react-router';
 import type { ItemKind, ItemSummary } from '../../shared/types';
 import { ITEM_KINDS, KIND_LABELS, STORY_TYPES } from '../../shared/constants';
 import { api } from '../api/client';
-import { useLoad } from '../state';
-import { EmptyState, ErrorBox, PageHeader, Spinner } from '../components/Common';
+import { useApp, useLoad, useToast } from '../state';
+import { EmptyState, ErrorBox, Modal, PageHeader, Spinner } from '../components/Common';
+import { accessibleTitle } from '../lib/media';
 import { Icon, KIND_ICON } from '../components/Icon';
 import { AudioCard, DocumentCard, PhotoTile, StoryCard, VideoCard } from '../components/ItemCards';
 import { Lightbox } from '../components/Lightbox';
+import { VideoTheater, requestPageFullscreen } from '../components/VideoPlayer';
 
 const PAGE = 30;
 
@@ -42,6 +44,37 @@ function CategoryList({ kind }: { kind: ItemKind }) {
   const [error, setError] = useState<string | null>(null);
   const [open, setOpen] = useState<number | null>(null);
   const facets = useLoad(() => api.facets(kind), [kind]);
+  const { isAdmin } = useApp();
+  const toast = useToast();
+  const [confirmDelete, setConfirmDelete] = useState<ItemSummary | null>(null);
+  const [theater, setTheater] = useState<ItemSummary | null>(null);
+
+  /** לחיצה על סרטון: מסך מלא כבר באירוע הלחיצה (דרישת הדפדפן), ואז הנגן ממלא אותו */
+  const playVideo = (it: ItemSummary) => {
+    const o = it.files.find((f) => f.role === 'original');
+    requestPageFullscreen(!o?.width || !o?.height || o.width >= o.height);
+    setTheater(it);
+  };
+  const [deleting, setDeleting] = useState(false);
+
+  /** מחיקה רכה (מנהל בלבד, נאכף בשרת) — הגלריה מתעדכנת מיד */
+  const doDelete = async () => {
+    if (!confirmDelete) return;
+    setDeleting(true);
+    try {
+      await api.remove(confirmDelete.id);
+      setItems((prev) => prev.filter((i) => i.id !== confirmDelete.id));
+      setTotal((t) => Math.max(0, t - 1));
+      // הרשימה בשרת התקצרה בפריט אחד — כדי לא לדלג על פריט בעמוד הבא
+      fetched.current = Math.max(0, fetched.current - 1);
+      toast('התמונה הועברה לסל המחזור. אפשר לשחזר אותה מההגדרות.');
+      setConfirmDelete(null);
+    } catch (e) {
+      toast((e as Error).message, 'error');
+    } finally {
+      setDeleting(false);
+    }
+  };
 
   const fetched = useRef(0);
   const busyMore = useRef(false);
@@ -210,11 +243,11 @@ function CategoryList({ kind }: { kind: ItemKind }) {
           {kind === 'photo' && (
             <div className="gallery">
               {items.map((it, i) => (
-                <PhotoTile key={it.id} item={it} onOpen={() => setOpen(i)} priority={i < 6} />
+                <PhotoTile key={it.id} item={it} onOpen={() => setOpen(i)} priority={i < 6} onDelete={isAdmin ? () => setConfirmDelete(it) : undefined} />
               ))}
             </div>
           )}
-          {kind === 'video' && <div className="grid grid--media">{items.map((it) => <VideoCard key={it.id} item={it} />)}</div>}
+          {kind === 'video' && <div className="grid grid--media">{items.map((it) => <VideoCard key={it.id} item={it} onPlay={() => playVideo(it)} />)}</div>}
           {kind === 'audio' && <div className="list">{items.map((it) => <AudioCard key={it.id} item={it} />)}</div>}
           {kind === 'story' && <div className="grid grid--stories">{items.map((it) => <StoryCard key={it.id} item={it} />)}</div>}
           {kind === 'document' && <div className="grid grid--docs">{items.map((it) => <DocumentCard key={it.id} item={it} />)}</div>}
@@ -226,6 +259,24 @@ function CategoryList({ kind }: { kind: ItemKind }) {
             </div>
           )}
         </>
+      )}
+
+      {theater && <VideoTheater item={theater} onClose={() => setTheater(null)} />}
+
+      {confirmDelete && (
+        <Modal title="מחיקת תמונה" onClose={() => setConfirmDelete(null)}>
+          <p>
+            למחוק את {accessibleTitle(confirmDelete) === 'תמונה' ? 'התמונה' : `״${accessibleTitle(confirmDelete)}״`}? היא תועבר לסל המחזור, הקובץ יישמר, ואפשר יהיה לשחזר אותה מתוך ״הגדרות ← ניהול תכנים״.
+          </p>
+          <div className="form__actions">
+            <button className="btn btn--ghost" onClick={() => setConfirmDelete(null)}>
+              ביטול
+            </button>
+            <button className="btn btn--danger" onClick={doDelete} disabled={deleting}>
+              {deleting ? 'מוחק…' : 'מחיקה'}
+            </button>
+          </div>
+        </Modal>
       )}
 
       {open !== null && kind === 'photo' && (

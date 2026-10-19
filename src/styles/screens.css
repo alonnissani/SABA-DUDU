@@ -1777,3 +1777,127 @@
   flex-wrap: wrap;
   gap: 8px;
 }
+
+/* ---------- התמונה המתחלפת בדף הבית ---------- */
+.portrait {
+  position: relative;
+  flex: none;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  overflow: hidden;
+  background: radial-gradient(circle at 35% 30%, #fffaf0, var(--paper-deep));
+  border: 2px solid var(--gold-soft);
+  box-shadow: 0 0 0 4px var(--card), var(--shadow-md);
+}
+.portrait img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  opacity: 0;
+  transition: opacity 0.9s ease;
+}
+.portrait img.is-loaded {
+  opacity: 1;
+}
+.portrait--empty {
+  overflow: visible;
+}
+.portrait__hint {
+  position: absolute;
+  bottom: -10px;
+  left: 50%;
+  transform: translateX(-50%);
+  white-space: nowrap;
+  padding: 1px 8px;
+  border-radius: 99px;
+  background: var(--card);
+  border: 1px solid var(--gold-soft);
+  font-size: 0.7rem;
+  font-weight: 700;
+  color: var(--brown);
+  text-decoration: none;
+}
+.form__actions--start {
+  justify-content: flex-start;
+}
+.home-photos {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(130px, 1fr));
+  gap: 14px;
+}
+.home-photos__item {
+  display: grid;
+  justify-items: center;
+  gap: 8px;
+  padding: 14px 8px;
+  border-radius: var(--r-md);
+  background: var(--card);
+  border: 1px solid var(--line);
+}
+.home-photos__actions {
+  display: flex;
+  gap: 4px;
+}
+.pick-grid__btn {
+  position: relative;
+}
+.pick-grid__btn.is-selected {
+  border-color: var(--gold);
+  box-shadow: 0 0 0 3px var(--gold-faint);
+}
+.pick-grid__check {
+  position: absolute;
+  top: 10px;
+  left: 10px;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  background: var(--brown-deep);
+  color: #fff;
+}
+.focus-editor {
+  display: grid;
+  gap: 18px;
+}
+@media (min-width: 640px) {
+  .focus-editor {
+    grid-template-columns: 1fr 180px;
+    align-items: start;
+  }
+}
+.focus-editor__image {
+  position: relative;
+  justify-self: center;
+  width: fit-content;
+  max-width: 100%;
+}
+/* התמונה נצמדת לקופסה (בלי שוליים), כדי שנקודת ההקשה תתאים בדיוק למקום בתמונה */
+.focus-editor__image img {
+  display: block;
+  width: auto;
+  height: auto;
+  max-width: 100%;
+  max-height: 60dvh;
+  min-width: min(100%, 240px);
+  cursor: crosshair;
+  touch-action: none;
+  border-radius: 6px;
+}
+.focus-editor__dot {
+  position: absolute;
+  width: 26px;
+  height: 26px;
+  margin: -13px 0 0 -13px;
+  border-radius: 50%;
+  border: 3px solid #fff;
+  box-shadow: 0 0 0 2px var(--brown-deep), 0 2px 6px rgba(0, 0, 0, 0.4);
+  pointer-events: none;
+}
+.focus-editor__side {
+  display: grid;
+  justify-items: center;
+  gap: 14px;
+}

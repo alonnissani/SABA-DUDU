@@ -1,6 +1,6 @@
 import type {
   AdminUser, ArchiveStats, AuthStatus, BackupStatus, FileInfo, InviteInfo, ItemDetail, ItemKind, ItemSummary,
-  SearchResults, SiteSettings, TagInfo, HeroTraits,
+  SearchResults, SiteSettings, TagInfo, HeroTraits, HomePhotoSetting,
 } from '../../shared/types';
 import { DIRECT_UPLOAD_MAX } from '../../shared/constants';
 
@@ -110,7 +110,7 @@ export const api = {
     createInvite: (b: { role: string; email?: string; note?: string; days?: number }) =>
       post<{ id: string; url: string; expiresAt: number }>('/admin/invites', b),
     revokeInvite: (id: string) => del(`/admin/invites/${id}`),
-    saveSettings: (b: { siteTitle?: string; subtitle?: string; heroTraits?: HeroTraits }) => put('/admin/settings', b),
+    saveSettings: (b: { siteTitle?: string; subtitle?: string; heroTraits?: HeroTraits; homePhotos?: HomePhotoSetting[] }) => put('/admin/settings', b),
     setHero: (b: { fileId?: string; itemId?: string; clear?: boolean }) => put<{ heroFileId: string | null }>('/admin/hero', b),
     renameTag: (id: number, name: string) => patch(`/admin/tags/${id}`, { name }),
     deleteTag: (id: number) => del(`/admin/tags/${id}`),

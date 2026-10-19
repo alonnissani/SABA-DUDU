@@ -77,11 +77,25 @@ export interface HeroTraits {
   details: { label: string; value: string }[];
 }
 
+/** תמונה מאוסף ״תמונות לדף הבית״: נקודת מיקוד (באחוזים) והגדלה, כדי שהפנים יישבו היטב בעיגול */
+export interface HomePhotoSetting {
+  itemId: string;
+  x: number;
+  y: number;
+  zoom: number;
+}
+
+export interface HomePhoto extends HomePhotoSetting {
+  /** קובץ להצגה — ממוזערת אם קיימת, אחרת המקור */
+  fileId: string;
+}
+
 export interface SiteSettings {
   siteTitle: string;
   subtitle: string;
   heroFileId: string | null;
   heroTraits: HeroTraits;
+  homePhotos: HomePhoto[];
 }
 
 export interface AuthStatus {
