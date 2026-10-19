@@ -12,12 +12,13 @@
     "test": "vitest run",
     "test:e2e": "playwright test",
     "cf-typegen": "wrangler types worker/worker-configuration.d.ts",
-    "db:migrate:local": "wrangler d1 migrations apply DB --local",
-    "db:migrate:remote": "wrangler d1 migrations apply DB --remote",
-    "deploy": "npm run build && wrangler d1 migrations apply DB --remote && wrangler deploy",
+    "db:migrate:local": "wrangler d1 migrations apply saba-dudu-db --local",
+    "db:migrate:remote": "wrangler d1 migrations apply saba-dudu-db --remote",
+    "deploy": "npm run build && npm run cf:deploy",
     "export-archive": "node scripts/export-archive.mjs",
     "icons": "node scripts/generate-icons.mjs",
-    "e2e:reset": "rm -rf .wrangler/state && wrangler d1 migrations apply DB --local"
+    "e2e:reset": "rm -rf .wrangler/state && wrangler d1 migrations apply saba-dudu-db --local",
+    "cf:deploy": "wrangler deploy && wrangler d1 migrations apply saba-dudu-db --remote"
   },
   "dependencies": {
     "@fontsource/assistant": "^5.3.0",

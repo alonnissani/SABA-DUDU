@@ -1,6 +1,7 @@
 /**
  * הגדרות Cloudflare Workers עבור ״סבא דודו״.
- * לפני פריסה ראשונה: החליפו את database_id במזהה שמתקבל מ-`wrangler d1 create saba-dudu-db`.
+ * אין צורך במזהי משאבים: בפריסה הראשונה wrangler יוצר אוטומטית את בסיס הנתונים (D1)
+ * ואת אחסון הקבצים (R2) לפי השמות שכאן, ובפריסות הבאות משתמש באותם משאבים.
  */
 {
   "$schema": "node_modules/wrangler/config-schema.json",
@@ -20,7 +21,6 @@
     {
       "binding": "DB",
       "database_name": "saba-dudu-db",
-      "database_id": "REPLACE_WITH_YOUR_D1_DATABASE_ID",
       "migrations_dir": "migrations"
     }
   ],

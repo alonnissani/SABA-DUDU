@@ -76,47 +76,36 @@ npm run e2e:reset && npm run test:e2e    # 12 בדיקות דפדפן (צילו�
 
 ---
 
-## פריסה ל-Cloudflare (פעם אחת)
+## פריסה ל-Cloudflare
 
 > צריך חשבון Cloudflare. התוכנית החינמית מספיקה להתחלה. R2 חינמי עד 10GB, ואחר כך כ-0.015$ ל-GB בחודש.
 
-1. **התחברות:**
-   ```bash
-   npx wrangler login
-   ```
-2. **יצירת בסיס הנתונים:**
-   ```bash
-   npx wrangler d1 create saba-dudu-db
-   ```
-   מעתיקים את ה-`database_id` שמתקבל לקובץ `wrangler.jsonc`, במקום `REPLACE_WITH_YOUR_D1_DATABASE_ID`.
-3. **יצירת אחסון הקבצים:**
-   ```bash
-   npx wrangler r2 bucket create saba-dudu-media
-   ```
-4. **(מומלץ מאוד) bucket לגיבוי:**
-   ```bash
-   npx wrangler r2 bucket create saba-dudu-backup
-   ```
-   ומסירים את ההערה משורת `BACKUP` בקובץ `wrangler.jsonc`.
-5. **קוד ההקמה (סוד, לא נשמר בקוד):**
-   ```bash
-   npx wrangler secret put SETUP_TOKEN
-   ```
-   בוחרים מחרוזת ארוכה ואקראית. היא נדרשת רק פעם אחת, ליצירת המנהל הראשון.
-6. **פריסה:**
-   ```bash
-   npm run deploy      # build + migrations + deploy
-   ```
-7. נכנסים לכתובת שמתקבלת (`https://saba-dudu.<חשבון>.workers.dev`), יוצרים מנהל, מעלים את התמונה הראשית ושולחים הזמנות לבני המשפחה.
+אין צורך ליצור מראש את בסיס הנתונים ואת אחסון הקבצים. בפריסה הראשונה wrangler יוצר אותם אוטומטית לפי השמות שב-`wrangler.jsonc` (`saba-dudu-db`, `saba-dudu-media`), ובפריסות הבאות משתמש באותם משאבים. מבנה הטבלאות (migrations) מוחל אוטומטית בכל פריסה.
 
-### חיבור GitHub לפריסה אוטומטית (Workers Builds)
+### אפשרות א׳: חיבור GitHub (Workers Builds), גם מהטלפון
 
-ב-Cloudflare Dashboard ← **Workers & Pages** ← ה-Worker `saba-dudu` ← **Settings ← Builds ← Connect** ← בוחרים את המאגר `alonnissani/SABA-DUDU`:
+1. ב-Cloudflare Dashboard: **Workers & Pages ← Create ← Import a repository** ← מתחברים ל-GitHub ובוחרים את `alonnissani/SABA-DUDU`.
+2. הגדרות ה-Build:
+   - **Production branch:** `main`
+   - **Build command:** `npm run build`
+   - **Deploy command:** `npm run cf:deploy`
+3. אחרי שהפריסה הראשונה מסתיימת: ב-Worker ← **Settings ← Variables and Secrets ← Add** ← סוג **Secret**, שם `SETUP_TOKEN`, ובערך מחרוזת ארוכה ואקראית. הקוד הזה נדרש רק פעם אחת, ליצירת המנהל הראשון, ולא נשמר בקוד.
+4. נכנסים לכתובת `https://saba-dudu.<חשבון>.workers.dev`, יוצרים מנהל עם קוד ההקמה, מעלים את התמונה הראשית ושולחים הזמנות לבני המשפחה.
 
-- **Build command:** `npm run build`
-- **Deploy command:** `npx wrangler d1 migrations apply DB --remote && npx wrangler deploy`
+מעכשיו כל מיזוג ל-`main` יפרוס גרסה חדשה. בדיקות האוטומטיות רצות ב-GitHub Actions על כל push (`.github/workflows/ci.yml`).
 
-מעכשיו כל push לענף הראשי יפרוס גרסה חדשה. ב-GitHub Actions רצות בדיקות על כל push (`.github/workflows/ci.yml`).
+### אפשרות ב׳: מהמחשב
+
+```bash
+npx wrangler login
+npm run deploy                       # build + deploy + migrations
+npx wrangler secret put SETUP_TOKEN
+```
+
+### הפעלת הגיבוי הלילי (מומלץ מאוד)
+
+1. יוצרים bucket שני: ב-Dashboard ← **R2 ← Create bucket** ← `saba-dudu-backup` (או `npx wrangler r2 bucket create saba-dudu-backup`).
+2. מסירים את ההערה משורת `BACKUP` בקובץ `wrangler.jsonc` ופורסים שוב.
 
 ### דומיין משלכם (לא חובה)
 
@@ -140,7 +129,7 @@ npm run e2e:reset && npm run test:e2e    # 12 בדיקות דפדפן (צילו�
 |---|---|
 | קובצי מקור ב-R2 (אחסון קבוע, כפול אצל Cloudflare) | ✅ פעיל מהפריסה |
 | D1 Time Travel: שחזור בסיס הנתונים לכל נקודה ב-30 הימים האחרונים (7 בחינם) | ✅ מובנה ב-Cloudflare |
-| גיבוי לילי (Cron, 02:00 UTC): העתקת קבצים חדשים ל-`saba-dudu-backup` + snapshot JSON של בסיס הנתונים | ✅ ממומש. **פעיל רק אחרי שלב 4 בפריסה** |
+| גיבוי לילי (Cron, 02:00 UTC): העתקת קבצים חדשים ל-`saba-dudu-backup` + snapshot JSON של בסיס הנתונים | ✅ ממומש. **פעיל רק אחרי ״הפעלת הגיבוי הלילי״** |
 | עותק מחוץ ל-Cloudflare | ⚠️ ידני: הריצו את סקריפט הייצוא מדי כמה חודשים |
 
 מצב הגיבויים מוצג למנהל ב״הגדרות ← מצב גיבויים״, כולל כפתור להרצת גיבוי עכשיו.
