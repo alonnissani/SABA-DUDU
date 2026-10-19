@@ -133,7 +133,7 @@ function ItemView({ item, reload, onChange }: { item: ItemDetail; reload: () => 
         </p>
       )}
 
-      {item.links.length > 0 && (
+      {item.links.some((l) => l !== storyCover(item)) && (
         <section className="item__links" aria-labelledby="links-title">
           <h2 id="links-title" className="section-title">מצורף לסיפור</h2>
           <LinkedItems item={item} />
@@ -232,15 +232,39 @@ function MediaView({ item }: { item: ItemDetail }) {
   );
 }
 
+/** תמונת הסיפור — התמונה הראשונה שצורפה ולא נמחקה (אותו כלל כמו בכרטיס ובעריכה) */
+function storyCover(item: ItemDetail): ItemSummary | null {
+  return item.kind === 'story' ? item.links.find((l) => l.kind === 'photo' && !l.deletedAt) ?? null : null;
+}
+
 function StoryBody({ item }: { item: ItemDetail }) {
-  return (
-    <div className="sheet">
-      {item.storyType && <span className="badge">{STORY_TYPE_LABEL[item.storyType]}</span>}
+  const cover = storyCover(item);
+  const photos = item.links.filter((l) => l.kind === 'photo' && !l.deletedAt);
+  const [open, setOpen] = useState<number | null>(null);
+  const coverSrc = cover ? previewUrl(cover) : null;
+  const heading = (
+    <>
       <h1 className="sheet__title">{item.title}</h1>
       <p className="sheet__byline">
         מאת {item.createdBy.name} · {formatDate(item.createdAt)}
         {(item.dateText || item.dateYear) && ` · ${item.dateText ?? item.dateYear}`}
       </p>
+    </>
+  );
+  return (
+    <div className="sheet">
+      {item.storyType && <span className="badge">{STORY_TYPE_LABEL[item.storyType]}</span>}
+      {cover && coverSrc ? (
+        <div className="sheet__head">
+          <button type="button" className="sheet__photo" onClick={() => setOpen(0)} aria-label="פתיחת התמונה בגודל מלא">
+            <img src={coverSrc} alt="" decoding="async" />
+          </button>
+          <div className="sheet__heading">{heading}</div>
+        </div>
+      ) : (
+        heading
+      )}
+      {open !== null && <Lightbox items={photos} index={open} onIndex={setOpen} onClose={() => setOpen(null)} />}
       <div className={`sheet__body ${item.storyType === 'saying' ? 'sheet__body--saying' : ''}`}>{item.body}</div>
       {item.people && <p className="item__people"><Icon name="users" size={18} />{item.people}</p>}
       <TagList tags={item.tags} />
@@ -249,7 +273,9 @@ function StoryBody({ item }: { item: ItemDetail }) {
 }
 
 function LinkedItems({ item }: { item: ItemDetail }) {
-  const photos = item.links.filter((l) => l.kind === 'photo');
+  // תמונת הסיפור כבר מוצגת ליד הכותרת — לא מציגים אותה פעמיים
+  const cover = storyCover(item);
+  const photos = item.links.filter((l) => l.kind === 'photo' && l !== cover);
   const [open, setOpen] = useState<number | null>(null);
   return (
     <>

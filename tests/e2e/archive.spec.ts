@@ -799,6 +799,23 @@ test('תמונה לסיפור: ממוזערת לצד הכותרת, הוספה, �
   await expect(page.locator('.story-photo')).toHaveCount(0);
   const first = (await summary()).coverFileId;
   expect(first).not.toBeNull();
+  // בדף הסיפור — התמונה ליד הכותרת, ולחיצה פותחת אותה בגודל מלא
+  const photoBtn = page.locator('.sheet__head .sheet__photo');
+  await expect(photoBtn.locator('img')).toBeVisible();
+  const pb = (await photoBtn.boundingBox())!;
+  const tb = (await page.locator('.sheet__head .sheet__title').boundingBox())!;
+  expect(pb.width).toBeLessThanOrEqual(130);
+  expect(Math.min(pb.y + pb.height, tb.y + tb.height) - Math.max(pb.y, tb.y)).toBeGreaterThan(0);
+  await expect(page.locator('.linked-photos')).toHaveCount(0);
+  await noHorizontalScroll(page);
+  await page.screenshot({ path: path.join(SHOTS, '42-story-page-photo.png') });
+  await photoBtn.click();
+  const full = page.locator('.lightbox .lightbox__img img').last();
+  await expect(full).toBeVisible();
+  await expect(full).toHaveAttribute('src', /\/api\/files\//);
+  await expect.poll(() => full.evaluate((el: HTMLImageElement) => el.naturalWidth)).toBeGreaterThan(0);
+  await page.getByRole('button', { name: 'סגירה' }).click();
+  await expect(page.locator('.lightbox')).toHaveCount(0);
   await page.goto('/c/story?sort=new');
   const thumb = cardOf().locator('.story-card__thumb');
   await expect(thumb).toBeVisible();
@@ -825,6 +842,7 @@ test('תמונה לסיפור: ממוזערת לצד הכותרת, הוספה, �
   await expect(page.locator('.story-photo')).toHaveCount(0);
   const after = await summary();
   expect(after.coverFileId).toBeNull();
+  await expect(page.locator('.sheet__photo')).toHaveCount(0);
   expect(after.title).toBe('הבוקר במרפסת');
   expect(after.excerpt).toBe(body);
   expect(((await (await page.request.get('/api/items?kind=photo&limit=1')).json()) as { total: number }).total).toBe(photosBefore);
