@@ -74,7 +74,7 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
             <button className="btn btn--primary" onClick={refresh}>נסו שוב</button>
           </div>
         ) : (
-          <span className="boot__mark" aria-label="טוען">ד</span>
+          <span className="boot__mark" aria-label="טוען">דודו</span>
         )}
       </div>
     );

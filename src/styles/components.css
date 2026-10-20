@@ -6,7 +6,9 @@
 }
 .boot__mark {
   font-family: var(--font-display);
-  font-size: 56px;
+  font-size: 44px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
   color: var(--gold);
   animation: fade-in 1.2s ease infinite alternate;
 }

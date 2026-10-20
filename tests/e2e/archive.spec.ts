@@ -381,6 +381,21 @@ test('אייקון האפליקציה (PWA): ״דודו״, גרסה מעודכנ
   expect(await (await page.request.get('/sw.js')).text()).toContain("'saba-shell-v2'");
 });
 
+test('מסך הטעינה מציג ״דודו״', async ({ page }) => {
+  // מאטים את בדיקת ההתחברות כדי לראות את מסך הטעינה
+  await page.route('**/api/auth/status', async (r) => {
+    await new Promise((res) => setTimeout(res, 1500));
+    await r.continue();
+  });
+  await page.goto('/home');
+  const mark = page.locator('.boot__mark');
+  await expect(mark).toHaveText('דודו');
+  const box = (await mark.boundingBox())!;
+  expect(box.width).toBeLessThan(page.viewportSize()!.width);
+  await page.screenshot({ path: path.join(SHOTS, '00-boot.png') });
+  await page.unroute('**/api/auth/status');
+});
+
 test('זיכרון אקראי במסך הבית — תמונות מהגלריה בלבד', async ({ page }) => {
   await login(page);
   const img = page.locator('.memory__media--photo.memory__media--fit img');
