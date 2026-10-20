@@ -724,15 +724,26 @@
   line-height: 1.25;
   color: var(--brown-deep);
 }
-.memory__story-excerpt {
-  font-family: var(--font-display);
-  font-size: 1.02rem;
-  line-height: 1.6;
-  color: var(--ink-soft);
-  display: -webkit-box;
-  -webkit-line-clamp: 3;
-  -webkit-box-orient: vertical;
-  overflow: hidden;
+.memory__story-head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.memory__story-head .memory__story-title {
+  flex: 1;
+  min-width: 0;
+}
+/* תמונת הסיפור — קטנה, משמאל לכותרת, בסגנון תמונה מודבקת */
+.memory__story-thumb {
+  flex: none;
+  width: 56px;
+  height: 56px;
+  object-fit: cover;
+  border: 3px solid #fffdf8;
+  border-radius: 8px;
+  background: var(--paper-deep);
+  box-shadow: 0 3px 10px rgba(94, 67, 48, 0.25);
+  transform: rotate(2deg);
 }
 .memory__story-link {
   justify-self: start;

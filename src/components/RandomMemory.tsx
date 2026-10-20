@@ -154,7 +154,7 @@ function MemoryPhoto({ item }: { item: ItemSummary }) {
   );
 }
 
-/** סיפור אקראי — כותרת, קטע קצר וקישור לסיפור המלא (בלי תמונת הסיפור) */
+/** סיפור אקראי — כותרת, תמונת הסיפור בקטן משמאל לה (אם יש), וקישור לסיפור המלא */
 function MemoryStory({ item }: { item: ItemSummary }) {
   return (
     <article className="memory__story" aria-labelledby={`memory-story-${item.id}`}>
@@ -162,10 +162,12 @@ function MemoryStory({ item }: { item: ItemSummary }) {
         <Icon name="story" size={16} />
         {item.storyType ? STORY_TYPE_LABEL[item.storyType] : 'סיפור'}
       </span>
-      <h3 id={`memory-story-${item.id}`} className="memory__story-title">
-        {item.title}
-      </h3>
-      {item.excerpt && <p className="memory__story-excerpt">{item.excerpt}</p>}
+      <div className="memory__story-head">
+        <h3 id={`memory-story-${item.id}`} className="memory__story-title">
+          {item.title}
+        </h3>
+        {item.coverFileId && <img className="memory__story-thumb" src={fileUrl(item.coverFileId)} alt="" loading="lazy" decoding="async" />}
+      </div>
       <Link to={`/item/${item.id}`} className="memory__story-link">
         לקריאת הסיפור המלא
         <Icon name="chevronLeft" size={16} />

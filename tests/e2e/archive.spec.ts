@@ -412,16 +412,25 @@ test('זיכרון אקראי במסך הבית — תמונות מהגלריה 
   await expect(page.locator('.lightbox')).toHaveCount(0);
   await expect(page).toHaveURL(/\/home$/);
 
-  // מתחת לתמונה — סיפור אקראי: כותרת, קטע קצר (לא כולו) וקישור לסיפור המלא; בלי תמונת הסיפור
+  // מתחת לתמונה — סיפור אקראי: רק הכותרת (בלי תוכן הסיפור) וקישור לסיפור המלא
   const storyBox = page.locator('.memory__story');
   await expect(storyBox).toBeVisible();
   await expect(storyBox.locator('.memory__story-title')).not.toBeEmpty();
-  await expect(storyBox.locator('img')).toHaveCount(0);
-  const ex = storyBox.locator('.memory__story-excerpt');
-  if (await ex.count()) {
-    const lines = await ex.evaluate((el) => el.getBoundingClientRect().height / parseFloat(getComputedStyle(el).lineHeight));
-    expect(lines).toBeLessThanOrEqual(3.1);
+  await expect(storyBox.locator('.memory__story-excerpt')).toHaveCount(0);
+  // לסיפור עם תמונה — התמונה שלו בקטן, משמאל לכותרת
+  for (let i = 0; i < 40 && !(await storyBox.locator('.memory__story-thumb').count()); i++) {
+    await page.getByRole('button', { name: 'עוד זיכרון' }).click();
+    await page.waitForTimeout(150);
   }
+  const thumb = storyBox.locator('.memory__story-thumb');
+  await expect(thumb).toBeVisible();
+  await expect.poll(() => thumb.evaluate((el: HTMLImageElement) => el.naturalWidth)).toBeGreaterThan(0);
+  const tb = (await thumb.boundingBox())!;
+  const ttl = (await storyBox.locator('.memory__story-title').boundingBox())!;
+  expect(tb.width).toBeLessThanOrEqual(64);
+  expect(tb.x + tb.width).toBeLessThanOrEqual(ttl.x + 1);
+  expect(Math.abs(tb.y + tb.height / 2 - (ttl.y + ttl.height / 2))).toBeLessThan(30);
+  await storyBox.screenshot({ path: path.join(SHOTS, '14c-memory-story-thumb.png') });
   // ״עוד זיכרון״ מחליף גם את הסיפור (כשיש יותר מסיפור אחד)
   const stories = ((await (await page.request.get('/api/random?kind=story')).json()) as { total: number }).total;
   if (stories > 1) {
