@@ -14,7 +14,7 @@ import { Lightbox } from '../components/Lightbox';
 
 const PAGE = 30;
 const CONTINUOUS_KEY = 'saba:audio-continuous';
-const RANDOM_KINDS: ItemKind[] = ['photo', 'video', 'story'];
+const RANDOM_KINDS: ItemKind[] = ['photo', 'video', 'audio', 'story'];
 
 const EMPTY_TEXT: Record<ItemKind, { title: string; text: string; cta: string }> = {
   photo: { title: 'עדיין אין תמונות באלבום', text: 'התמונות מגיעות מתיקיית Google Drive המשפחתית ומופיעות כאן אחרי הסנכרון.', cta: 'הוספת תמונות' },

@@ -920,17 +920,17 @@ test('הגדרות מסך פתיחה ותמונה ראשית', async ({ page }) 
   await expect(page.getByText('עדיין לא נבחרה תמונה')).toBeVisible();
 });
 
-test('סרטונים וסיפורים: סדר אקראי בכל כניסה, בלי כפילויות או חוסרים', async ({ page }) => {
+test('סרטונים, הקלטות וסיפורים: סדר אקראי בכל כניסה, בלי כפילויות או חוסרים', async ({ page }) => {
   await login(page);
   const origin = new URL(page.url()).origin;
   for (let i = 0; i < 36; i++) {
     await page.request.post('/api/items', { data: { kind: 'story', title: `סיפור מספר ${i}`, body: `תוכן הסיפור ${i}`, storyType: 'family' }, headers: { origin } });
   }
   const totals = {} as Record<string, number>;
-  for (const k of ['video', 'story']) totals[k] = ((await (await page.request.get(`/api/items?kind=${k}&limit=1`)).json()) as { total: number }).total;
+  for (const k of ['video', 'audio', 'story']) totals[k] = ((await (await page.request.get(`/api/items?kind=${k}&limit=1`)).json()) as { total: number }).total;
   expect(totals.story).toBeGreaterThan(36);
 
-  const seen: Record<string, Set<string>> = { video: new Set(), story: new Set() };
+  const seen: Record<string, Set<string>> = { video: new Set(), audio: new Set(), story: new Set() };
   page.on('request', (r) => {
     const u = new URL(r.url());
     const k = u.searchParams.get('kind') ?? '';
@@ -958,6 +958,17 @@ test('סרטונים וסיפורים: סדר אקראי בכל כניסה, בל
   expect(a).not.toBe(b);
   // כל הסרטונים מוצגים (הרשימה מסוננת מכפילויות לפי מזהה) — כולל סרטוני Drive
   await expect(page.locator('.media-card[data-source="drive"]')).not.toHaveCount(0);
+
+  // הקלטות — גם הן בסדר אקראי (seed חדש בכל כניסה), כל הקלטה פעם אחת
+  for (let i = 0; i < 2; i++) {
+    await nav.getByRole('link', { name: 'הקלטות' }).click();
+    await expect(page.locator('.audio-card')).toHaveCount(totals.audio);
+    const titles = await page.locator('.audio-card .card__title').allTextContents();
+    expect(new Set(titles).size).toBe(totals.audio);
+    await expect(page.locator('.filters select').first()).toHaveValue('random');
+    await nav.getByRole('link', { name: 'בית' }).click();
+  }
+  expect(seen.audio.size).toBeGreaterThanOrEqual(2);
 
   // גלילה עד הסוף בסיפורים — כל סיפור פעם אחת
   await nav.getByRole('link', { name: 'סיפורים' }).click();
