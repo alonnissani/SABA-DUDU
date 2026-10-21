@@ -266,8 +266,7 @@ test('סרטון: רק קישור Drive (אין העלאה מהמכשיר); סר
   await expect(page.locator('.media-card__dur')).toHaveText('0:03');
   await shot(page, '08-videos');
   await page.locator('.media-card').first().click();
-  await expect(page.locator('.theater video')).toBeVisible();
-  await page.getByRole('link', { name: 'לדף הסרטון ותגובות' }).click();
+  await expect(page).toHaveURL(/\/item\//);
   await expect(page.locator('video.video')).toBeVisible();
   const playable = await page.locator('video.video').evaluate((v: HTMLVideoElement) => new Promise((r) => {
     if (v.readyState >= 1) r(v.duration);
@@ -440,11 +439,16 @@ test('זיכרון אקראי במסך הבית — תמונות מהגלריה 
   const thumb = storyBox.locator('.memory__story-thumb');
   await expect(thumb).toBeVisible();
   await expect.poll(() => thumb.evaluate((el: HTMLImageElement) => el.naturalWidth)).toBeGreaterThan(0);
-  const tb = (await thumb.boundingBox())!;
-  const ttl = (await storyBox.locator('.memory__story-title').boundingBox())!;
-  expect(tb.width).toBeLessThanOrEqual(64);
-  expect(tb.x + tb.width).toBeLessThanOrEqual(ttl.x + 1);
-  expect(Math.abs(tb.y + tb.height / 2 - (ttl.y + ttl.height / 2))).toBeLessThan(30);
+  // מודדים אחרי שאנימציית הכניסה הסתיימה, את שניהם באותו רגע
+  await storyBox.evaluate((el) => Promise.all(el.getAnimations({ subtree: true }).map((an) => an.finished)));
+  const pos = await storyBox.evaluate((el) => {
+    const t = el.querySelector('.memory__story-thumb')!.getBoundingClientRect();
+    const h = el.querySelector('.memory__story-title')!.getBoundingClientRect();
+    return { tw: t.width, tRight: t.right, tMid: t.top + t.height / 2, hLeft: h.left, hMid: h.top + h.height / 2 };
+  });
+  expect(pos.tw).toBeLessThanOrEqual(64);
+  expect(pos.tRight).toBeLessThanOrEqual(pos.hLeft + 1);
+  expect(Math.abs(pos.tMid - pos.hMid)).toBeLessThan(30);
   await storyBox.screenshot({ path: path.join(SHOTS, '14c-memory-story-thumb.png') });
   // ״עוד זיכרון״ מחליף גם את הסיפור (כשיש יותר מסיפור אחד)
   const stories = ((await (await page.request.get('/api/random?kind=story')).json()) as { total: number }).total;
@@ -635,7 +639,7 @@ test('גלריה: סדר אקראי בכל כניסה, טעינה הדרגתית
   await shot(page, '26-gallery-random');
 });
 
-test('סרטונים: חלונית צפייה ביחס המקורי, בלי מסך מלא כפוי; מסך מלא דרך הנגן', async ({ page }) => {
+test('סרטונים: לחיצה מעבירה לדף הסרטון, ניגון רק בלחיצה על Play; ביחס המקורי ומסך מלא דרך הנגן', async ({ page }) => {
   await login(page);
   await page.goto('/c/video');
   // כרטיסים קומפקטיים: 3 בשורה ב-390px, 2 במסך צר מאוד; תמונה מקדימה ביחס 16:9 וכותרת בשורה אחת
@@ -647,45 +651,9 @@ test('סרטונים: חלונית צפייה ביחס המקורי, בלי מס
   await page.setViewportSize({ width: 340, height: 844 });
   expect(await cols()).toBe(2);
   await page.setViewportSize({ width: 390, height: 844 });
-  // לחיצה על כרטיס — חלונית צפייה בתוך האתר, בלי מסך מלא כפוי
+  // לחיצה על כרטיס — מעבר לדף הסרטון (עם מסך מלא דרך הנגן); הסרטון לא מתחיל לנגן מעצמו
   await page.locator('.media-card[data-source="upload"]').first().click();
-  const tv = page.locator('.theater video');
-  await expect(tv).toBeVisible();
-  expect(await page.evaluate(() => document.fullscreenElement)).toBeNull();
-  // נגן אחד בלבד, בלי שום שכבה מעליו
-  await expect(page.locator('.theater__frame > *')).toHaveCount(1);
-  expect(await page.locator('.theater__frame').evaluate((f) => {
-    const r = f.getBoundingClientRect();
-    return document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2)?.tagName;
-  })).toBe('VIDEO');
-  await tv.evaluate((v: HTMLVideoElement) => (v.readyState >= 1 ? null : new Promise((r) => v.addEventListener('loadedmetadata', r))));
-  const t = await tv.evaluate((v: HTMLVideoElement) => {
-    const r = v.getBoundingClientRect();
-    const s = Math.min(r.width / v.videoWidth, r.height / v.videoHeight);
-    return { fit: getComputedStyle(v).objectFit, w: v.videoWidth * s, h: v.videoHeight * s, bw: r.width, bh: r.height, vw: innerWidth, vh: innerHeight };
-  });
-  expect(t.fit).toBe('contain');
-  // התוכן נכנס כולו לתוך הנגן (ללא חיתוך) והנגן לא חורג מהמסך
-  expect(t.w).toBeLessThanOrEqual(t.bw + 1);
-  expect(t.h).toBeLessThanOrEqual(t.bh + 1);
-  expect(t.bw).toBeLessThanOrEqual(t.vw);
-  await page.screenshot({ path: path.join(SHOTS, '29-video-theater.png') });
-  await page.getByRole('button', { name: 'סגירה' }).click();
-  await expect(page.locator('.theater')).toHaveCount(0);
-  // Esc ולחיצה על הרקע סוגרים גם הם
-  await page.locator('.media-card[data-source="upload"]').first().click();
-  await expect(tv).toBeVisible();
-  await page.keyboard.press('Escape');
-  await expect(page.locator('.theater')).toHaveCount(0);
-  await page.locator('.media-card[data-source="upload"]').first().click();
-  await expect(tv).toBeVisible();
-  await page.locator('.theater__stage').click({ position: { x: 4, y: 4 } });
-  await expect(page.locator('.theater')).toHaveCount(0);
-  await expect(page).toHaveURL(/\/c\/video$/);
-
-  // דף הסרטון עצמו — כפתור מסך מלא
-  await page.locator('.media-card[data-source="upload"]').first().click();
-  await page.getByRole('link', { name: 'לדף הסרטון ותגובות' }).click();
+  await expect(page).toHaveURL(/\/item\//);
   await expect.poll(() => page.evaluate(() => document.fullscreenElement)).toBeNull();
   const video = page.locator('video.video');
   await expect(video).toBeVisible();
@@ -697,27 +665,27 @@ test('סרטונים: חלונית צפייה ביחס המקורי, בלי מס
   expect(m.fit).toBe('contain');
   expect(Math.abs(m.ratio - m.natural)).toBeLessThan(0.03);
   expect(m.right).toBeLessThanOrEqual(m.vw);
+  // לא מתנגן מעצמו — רק אחרי לחיצה על Play
+  await page.waitForTimeout(1000);
+  expect(await video.evaluate((v: HTMLVideoElement) => ({ paused: v.paused, t: v.currentTime, auto: v.autoplay }))).toEqual({ paused: true, t: 0, auto: false });
   await shot(page, '27-video-page');
+  await video.evaluate((v: HTMLVideoElement) => v.play());
+  await expect.poll(() => video.evaluate((v: HTMLVideoElement) => !v.paused && v.currentTime > 0)).toBe(true);
+  await video.evaluate((v: HTMLVideoElement) => v.pause());
   await page.getByRole('button', { name: 'צפייה במסך מלא' }).click();
   await expect.poll(() => page.evaluate(() => document.fullscreenElement?.tagName ?? null)).toBe('VIDEO');
   await page.evaluate(() => document.exitFullscreen());
 
-  // סרטון Google Drive — לחיצה בגלריה פותחת את החלונית עם הנגן המוטמע (עם מסך מלא משלו)
+  // סרטון Google Drive — לחיצה בגלריה מעבירה לדף הסרטון, עם הנגן המוטמע (שמחכה ללחיצה על Play)
   await page.goto('/c/video');
   await page.locator('.media-card[data-source="drive"]').first().click();
-  const iframe = page.locator('.theater__frame iframe');
+  await expect(page).toHaveURL(/\/item\//);
+  const iframe = page.locator('.drive-frame iframe');
   await expect(iframe).toBeVisible();
-  await expect(page.locator('.theater__frame > *')).toHaveCount(1);
-  expect(await page.locator('.theater__frame').evaluate((f) => {
-    const r = f.getBoundingClientRect();
-    return document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2)?.tagName;
-  })).toBe('IFRAME');
+  expect(await iframe.getAttribute('src')).toMatch(/\/preview$/);
   expect(await iframe.getAttribute('allowfullscreen')).not.toBeNull();
   expect(await page.evaluate(() => document.fullscreenElement)).toBeNull();
-  await expect(page.getByRole('link', { name: 'פתיחה ב-Google Drive' })).toHaveCount(1);
   await expect(page.getByRole('link', { name: 'פתיחה ב-Google Drive' })).toHaveAttribute('href', /drive\.google\.com/);
-  await page.getByRole('link', { name: 'לדף הסרטון ותגובות' }).click();
-  await expect(page.locator('.drive-frame iframe')).toBeVisible();
   await page.getByRole('button', { name: 'צפייה במסך מלא' }).click();
   await expect.poll(() => page.evaluate(() => document.fullscreenElement?.className ?? null)).toContain('drive-frame');
   await page.evaluate(() => document.exitFullscreen());
@@ -1325,63 +1293,32 @@ test.describe('Chrome באנדרואיד (אמולציה)', () => {
   const { defaultBrowserType: _ignored, ...pixel } = devices['Pixel 7'];
   void _ignored;
   test.use({ ...pixel, locale: 'he-IL' });
-  test('חלונית Drive: בלי סיבוב או מסך מלא כפויים, התאמה לאנכי ולאופקי, חזרה לארכיון', async ({ page }) => {
+  test('סרטונים: לחיצה מעבירה לדף הסרטון, בלי ניגון או מסך מלא כפויים; ״חזרה״ לארכיון', async ({ page }) => {
     await login(page);
-    const vids = ((await (await page.request.get('/api/items?kind=video&limit=50')).json()) as { items: { externalVideo: { fileId: string } | null }[] }).items;
-    const driveId = vids.find((v) => v.externalVideo)!.externalVideo!.fileId;
     await page.goto('/c/video');
     const ua = await page.evaluate(() => navigator.userAgent);
     expect(ua).toContain('Android');
 
-    const open = async (ratio: number) => {
-      await page.evaluate(([id, r]) => localStorage.setItem(`saba:drive-ratio:${id}`, String(r)), [driveId, ratio] as const);
-      await page.locator('.media-card[data-source="drive"]').first().click();
-      await expect(page.locator('.theater__frame iframe')).toBeVisible();
-      // אין מסך מלא כפוי (ולכן גם אין נעילת כיוון)
-      expect(await page.evaluate(() => document.fullscreenElement)).toBeNull();
-      return page.locator('.theater__frame').evaluate((el) => {
-        const r = el.getBoundingClientRect();
-        const st = el.parentElement!.getBoundingClientRect();
-        // השטח הפנוי לנגן: החלונית פחות הסרגל והשוליים
-        return { w: r.width, h: r.height, left: r.left, top: r.top, bottom: r.bottom, aw: innerWidth - 16, ah: st.height - 16, stTop: st.top, vw: innerWidth, vh: innerHeight };
-      });
-    };
-
-    // אנכי — מנצל את הגובה, במרכז
-    const p = await open(9 / 16);
-    expect(Math.abs(p.w / p.h - 9 / 16)).toBeLessThan(0.02);
-    // ממלא את השטח הפנוי עד הגבול הראשון (רוחב או גובה) — בלי חיתוך
-    expect(Math.max(p.w / p.aw, p.h / p.ah)).toBeGreaterThan(0.97);
-    expect(p.h).toBeLessThan(p.w * 2);
-    expect(p.bottom).toBeLessThanOrEqual(p.vh + 1);
-    expect(p.top).toBeGreaterThanOrEqual(p.stTop - 1);
-    expect(Math.abs(p.left - (p.vw - p.w) / 2)).toBeLessThan(2);
-    // כפתורים: רק סגירה, Drive ודף הסרטון — בלי כפילויות
-    await expect(page.locator('.theater__bar .theater__btn')).toHaveCount(3);
-    await page.screenshot({ path: path.join(SHOTS, '35-android-drive-portrait.png') });
-    // ״חזרה״ של הטלפון — יציאה מהנגן וחזרה לארכיון
-    await page.goBack();
-    await expect(page.locator('.theater')).toHaveCount(0);
-    await expect(page).toHaveURL(/\/c\/video$/);
-
-    // אופקי — מנצל את רוחב המסך
-    const l = await open(16 / 9);
-    expect(Math.abs(l.w - l.aw)).toBeLessThan(2);
-    expect(Math.abs(l.w / l.h - 16 / 9)).toBeLessThan(0.02);
-    await page.screenshot({ path: path.join(SHOTS, '36-android-drive-landscape.png') });
-    await page.getByRole('button', { name: 'סגירה' }).click();
-    await expect(page.locator('.theater')).toHaveCount(0);
-    await expect(page).toHaveURL(/\/c\/video$/);
-
-    // סרטון שהועלה — נפתח בחלונית ומתחיל לנגן בנגן המקורי
-    await page.locator('.media-card[data-source="upload"]').first().click();
-    const v = page.locator('.theater video');
-    await expect(v).toBeVisible();
+    // סרטון Google Drive — דף הסרטון עם הנגן המוטמע, בלי מסך מלא כפוי
+    await page.locator('.media-card[data-source="drive"]').first().click();
+    await expect(page).toHaveURL(/\/item\//);
+    await expect(page.locator('.drive-frame iframe')).toBeVisible();
     expect(await page.evaluate(() => document.fullscreenElement)).toBeNull();
-    await expect.poll(() => v.evaluate((el: HTMLVideoElement) => !el.paused)).toBe(true);
-    await expect(page.locator('.theater__bar .theater__btn')).toHaveCount(2);
+    await page.screenshot({ path: path.join(SHOTS, '35-android-drive-page.png') });
+    // ״חזרה״ של הטלפון — חזרה לארכיון
     await page.goBack();
-    await expect(page.locator('.theater')).toHaveCount(0);
+    await expect(page).toHaveURL(/\/c\/video$/);
+
+    // סרטון שהועלה — דף הסרטון; לא מתחיל לנגן עד הלחיצה על Play
+    await page.locator('.media-card[data-source="upload"]').first().click();
+    await expect(page).toHaveURL(/\/item\//);
+    const v = page.locator('video.video');
+    await expect(v).toBeVisible();
+    await page.waitForTimeout(800);
+    expect(await v.evaluate((el: HTMLVideoElement) => el.paused)).toBe(true);
+    expect(await page.evaluate(() => document.fullscreenElement)).toBeNull();
+    await page.goBack();
+    await expect(page).toHaveURL(/\/c\/video$/);
 
     // תמונות מ-Google Drive נטענות גם בכרום באנדרואיד
     await page.goto('/c/photo');

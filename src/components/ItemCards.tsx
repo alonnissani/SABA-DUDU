@@ -79,8 +79,8 @@ export function PhotoTile({ item, onOpen, priority }: { item: ItemSummary; onOpe
   );
 }
 
-/** כרטיס סרטון. עם onPlay — לחיצה פותחת את הנגן על כל המסך; בלי — קישור לדף הסרטון */
-export function VideoCard({ item, onPlay }: { item: ItemSummary; onPlay?: () => void }) {
+/** כרטיס סרטון — לחיצה מעבירה לדף הסרטון; הניגון מתחיל רק בלחיצה על Play שם */
+export function VideoCard({ item }: { item: ItemSummary }) {
   const src = previewUrl(item);
   const o = originalOf(item);
   // מקור הסרטון — לא מוצג למשתמשים (רק לזיהוי בבדיקות)
@@ -104,13 +104,6 @@ export function VideoCard({ item, onPlay }: { item: ItemSummary; onPlay?: () => 
       </span>
     </>
   );
-  if (onPlay) {
-    return (
-      <button type="button" className="card media-card" data-source={source} onClick={onPlay} aria-label={`צפייה בסרטון: ${item.title}`}>
-        {content}
-      </button>
-    );
-  }
   return (
     <Link to={`/item/${item.id}`} className="card media-card" data-source={source}>
       {content}

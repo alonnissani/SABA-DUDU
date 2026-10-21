@@ -11,7 +11,6 @@ import { AudioCard, DocumentCard, VideoCard } from '../components/ItemCards';
 import { PhotoCollage } from '../components/PhotoCollage';
 import { StoryBoard } from '../components/StoryBoard';
 import { Lightbox } from '../components/Lightbox';
-import { VideoTheater } from '../components/VideoPlayer';
 
 const PAGE = 30;
 const CONTINUOUS_KEY = 'saba:audio-continuous';
@@ -51,7 +50,6 @@ function CategoryList({ kind }: { kind: ItemKind }) {
   const { isAdmin, settings } = useApp();
   const toast = useToast();
   const [confirmDelete, setConfirmDelete] = useState<ItemSummary | null>(null);
-  const [theater, setTheater] = useState<ItemSummary | null>(null);
   // הקלטות: השמעה ברצף — בסוף הקלטה מתחילה הבאה ברשימה
   const [continuous, setContinuousState] = useState(() => {
     try {
@@ -71,7 +69,6 @@ function CategoryList({ kind }: { kind: ItemKind }) {
   const [autoPlayId, setAutoPlayId] = useState<string | null>(null);
 
   /** לחיצה על סרטון פותחת חלונית צפייה בתוך האתר — בלי מסך מלא או סיבוב כפויים */
-  const playVideo = (it: ItemSummary) => setTheater(it);
   const [deleting, setDeleting] = useState(false);
 
   /** מחיקה רכה (מנהל בלבד, נאכף בשרת) — הגלריה מתעדכנת מיד */
@@ -273,7 +270,7 @@ function CategoryList({ kind }: { kind: ItemKind }) {
           {kind === 'photo' && (
             <PhotoCollage items={items} onOpen={setOpen} />
           )}
-          {kind === 'video' && <div className="grid grid--media">{items.map((it) => <VideoCard key={it.id} item={it} onPlay={() => playVideo(it)} />)}</div>}
+          {kind === 'video' && <div className="grid grid--media">{items.map((it) => <VideoCard key={it.id} item={it} />)}</div>}
           {kind === 'audio' && (
             <>
               <div className="audio-toolbar">
@@ -311,7 +308,6 @@ function CategoryList({ kind }: { kind: ItemKind }) {
         </>
       )}
 
-      {theater && <VideoTheater item={theater} onClose={() => setTheater(null)} />}
 
       {confirmDelete && (
         <Modal title="מחיקת תמונה" onClose={() => setConfirmDelete(null)}>
