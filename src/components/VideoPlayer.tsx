@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { drivePreviewUrl, driveThumbUrl } from '../../shared/drive';
+import { driveThumbUrl } from '../../shared/drive';
 import { formatDuration } from '../lib/media';
 import { Icon } from './Icon';
 
@@ -21,17 +21,24 @@ export async function enterFullscreen(el: FsElement): Promise<boolean> {
   return true;
 }
 
-/** סרטון שהועלה לאתר: מוצג בשלמותו ביחס המקורי, עם כפתור מסך מלא ברור. */
+/**
+ * סרטון שהועלה לאתר. בדף הסרטון: תמונת שער עם כפתור Play של האתר (בלי פקדי הנגן עדיין, כדי שלא יהיו שני Play).
+ * לחיצה — הסרטון מתחיל לנגן במסך מלא של הנגן עצמו: ביחס המקורי, עם מערכת פקדים אחת, בלי נעילת סיבוב.
+ * יציאה (״חזרה״/Esc) מחזירה לדף, והנגן נשאר בו עם פקדים.
+ */
 export function UploadedVideo({ src, poster, width, height, duration }: { src: string; poster?: string; width: number | null; height: number | null; duration: number | null }) {
   const ref = useRef<FsVideo>(null);
   const [dims, setDims] = useState<{ w: number; h: number } | null>(width && height ? { w: width, h: height } : null);
+  const [started, setStarted] = useState(false);
   const shape = !dims ? 'unknown' : dims.h > dims.w ? 'portrait' : 'landscape';
 
-  const fullscreen = async () => {
+  const play = async () => {
     const v = ref.current;
     if (!v) return;
-    const ok = await enterFullscreen(v);
-    // אייפון: מסך מלא של נגן הווידאו המובנה (כולל סיבוב לרוחב)
+    setStarted(true);
+    v.play().catch(() => undefined);
+    const ok = fullscreenSupported() && (await enterFullscreen(v));
+    // אייפון: מסך מלא של נגן הווידאו המובנה
     if (!ok) v.webkitEnterFullscreen?.();
   };
 
@@ -43,7 +50,7 @@ export function UploadedVideo({ src, poster, width, height, duration }: { src: s
           className="video"
           src={src}
           poster={poster}
-          controls
+          controls={started}
           playsInline
           preload="metadata"
           style={dims ? { aspectRatio: `${dims.w} / ${dims.h}` } : undefined}
@@ -54,74 +61,78 @@ export function UploadedVideo({ src, poster, width, height, duration }: { src: s
         >
           הדפדפן אינו תומך בניגון וידאו.
         </video>
+        {!started && (
+          <button type="button" className="video-cover__play video-cover__play--over" onClick={play} aria-label="ניגון הסרטון">
+            <Icon name="play" size={34} />
+          </button>
+        )}
       </div>
-      <div className="video-wrap__bar">
-        {duration ? <span className="meta__muted">אורך: {formatDuration(duration)}</span> : <span />}
-        <button className="btn btn--primary btn--sm" onClick={fullscreen}>
-          <Icon name="fullscreen" size={18} />
-          צפייה במסך מלא
-        </button>
-      </div>
+      {duration ? (
+        <div className="video-wrap__bar">
+          <span className="meta__muted">אורך: {formatDuration(duration)}</span>
+        </div>
+      ) : null}
     </div>
   );
 }
 
 /**
- * סרטון מ-Google Drive בנגן המוטמע של גוגל. הניגון והמסך המלא תלויים בהרשאות השיתוף בדרייב ובדפדפן,
- * ולכן תמיד יש גם פתיחה ישירה ב-Google Drive. יחס הגובה-רוחב נלמד מהתמונה הממוזערת של דרייב, אם היא זמינה.
+ * סרטון מ-Google Drive. בדף הסרטון: תמונת השער ביחס המקורי עם כפתור Play של האתר (בלי הנגן המוטמע,
+ * שמנגן בתוך העמוד בצורה לא נוחה). Play פותח את הצופה של Google Drive — כמו החץ בפינת הנגן של גוגל:
+ * מותאם לטלפון, אנכי או אופקי, עם הפקדים של גוגל ומסך מלא. ״חזרה״ או X סוגרים וחוזרים לדף.
  */
 export function DriveVideo({ fileId, url, title }: { fileId: string; url: string; title: string }) {
-  const frame = useRef<HTMLDivElement>(null);
-  const [ratio, setRatio] = useState<number | null>(null);
-  const [canFs, setCanFs] = useState(false);
+  const [ratio, setRatio] = useState<number | null>(() => readDriveRatio(fileId));
+  const [thumb, setThumb] = useState<'loading' | 'ok' | 'none'>('loading');
 
   useEffect(() => {
-    setCanFs(fullscreenSupported());
+    setThumb('loading');
     const cached = readDriveRatio(fileId);
     if (cached) setRatio(cached);
     const img = new Image();
     img.referrerPolicy = 'no-referrer';
     img.onload = () => {
-      if (!img.naturalWidth || !img.naturalHeight) return;
-      setRatio(img.naturalWidth / img.naturalHeight);
-      writeDriveRatio(fileId, img.naturalWidth / img.naturalHeight);
+      if (!img.naturalWidth || !img.naturalHeight) return setThumb('none');
+      setThumb('ok');
+      // אם כבר ידוע יחס (נשמר בדפדפן) — הוא קובע; אחרת לומדים מהתמונה הממוזערת
+      if (!readDriveRatio(fileId)) {
+        setRatio(img.naturalWidth / img.naturalHeight);
+        writeDriveRatio(fileId, img.naturalWidth / img.naturalHeight);
+      }
     };
+    img.onerror = () => setThumb('none');
     img.src = driveThumbUrl(fileId);
+    return () => {
+      img.onload = null;
+      img.onerror = null;
+    };
   }, [fileId]);
 
-  const portrait = ratio !== null && ratio < 1;
-  const fullscreen = async () => {
-    const ok = frame.current && (await enterFullscreen(frame.current));
-    // אם אין מסך מלא בתוך האתר (למשל אייפון) — פתיחה ישירה ב-Google Drive
-    if (!ok) window.open(url, '_blank', 'noopener');
-  };
-
+  const r = ratio ?? 16 / 9;
   return (
     <div className="video-wrap">
-      <div ref={frame} className={`drive-frame ${portrait ? 'drive-frame--portrait' : ''}`} style={ratio ? { aspectRatio: String(ratio) } : undefined}>
-        <iframe
-          src={drivePreviewUrl(fileId)}
-          title={title || 'סרטון מ-Google Drive'}
-          allow="autoplay; fullscreen; encrypted-media; picture-in-picture"
-          allowFullScreen
-          loading="lazy"
-          referrerPolicy="no-referrer"
-        />
-      </div>
+      <a
+        className={`video-cover ${r < 1 ? 'video-cover--portrait' : ''}`}
+        href={url}
+        target="_blank"
+        rel="noopener noreferrer"
+        style={{ aspectRatio: String(r) }}
+        aria-label={`ניגון הסרטון${title ? `: ${title}` : ''}`}
+        data-ratio={r.toFixed(3)}
+      >
+        {thumb === 'ok' ? (
+          <img className="video-cover__img" src={driveThumbUrl(fileId)} alt="" referrerPolicy="no-referrer" />
+        ) : (
+          <span className="video-cover__empty" aria-hidden="true">
+            <Icon name="video" size={40} />
+          </span>
+        )}
+        <span className="video-cover__play" aria-hidden="true">
+          <Icon name="play" size={34} />
+        </span>
+      </a>
       <div className="video-wrap__bar">
-        <span className="meta__muted small">הסרטון מוצג מ-Google Drive. אם הוא לא מתנגן, ייתכן שהרשאות השיתוף שלו מוגבלות.</span>
-        <div className="video-wrap__actions">
-          {canFs && (
-            <button className="btn btn--primary btn--sm" onClick={fullscreen}>
-              <Icon name="fullscreen" size={18} />
-              צפייה במסך מלא
-            </button>
-          )}
-          <a className={`btn btn--sm ${canFs ? 'btn--ghost' : 'btn--primary'}`} href={url} target="_blank" rel="noopener noreferrer">
-            <Icon name="link" size={18} />
-            פתיחה ב-Google Drive
-          </a>
-        </div>
+        <span className="meta__muted small">הסרטון נפתח ב-Google Drive. אם הוא לא מתנגן, ייתכן שהרשאות השיתוף שלו מוגבלות.</span>
       </div>
     </div>
   );

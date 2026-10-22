@@ -1994,29 +1994,70 @@
   max-height: none;
   border-radius: 0;
 }
-.drive-frame--portrait {
+/* דף הסרטון: תמונת שער ביחס המקורי עם כפתור Play של האתר */
+.video-box {
+  position: relative;
+}
+.video-cover {
+  position: relative;
+  display: grid;
+  place-items: center;
+  width: 100%;
+  max-height: min(80dvh, 760px);
+  margin-inline: auto;
+  border-radius: var(--r-md);
+  overflow: hidden;
+  background: #1d1611;
+  box-shadow: var(--shadow-lg);
+  cursor: pointer;
+}
+/* אנכי — מנצל את הגובה; הרוחב נגזר מהיחס */
+.video-cover--portrait {
   width: auto;
   height: min(80dvh, 760px);
   max-width: 100%;
-  margin-inline: auto;
 }
-.drive-frame:fullscreen {
+.video-cover__img {
+  position: absolute;
+  inset: 0;
   width: 100%;
   height: 100%;
-  max-width: none;
-  aspect-ratio: auto !important;
-  border-radius: 0;
-  background: #000;
+  object-fit: contain;
 }
-.drive-frame:-webkit-full-screen {
-  width: 100%;
-  height: 100%;
-  border-radius: 0;
+.video-cover__empty {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  color: var(--gold-soft);
+  background: radial-gradient(circle at 50% 40%, #3a2b20, #1d1611);
 }
-.video-wrap__actions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
+.video-cover__play {
+  position: relative;
+  display: grid;
+  place-items: center;
+  width: 78px;
+  height: 78px;
+  padding-inline-start: 5px;
+  border: 0;
+  border-radius: 50%;
+  color: #fffaf0;
+  background: radial-gradient(circle at 35% 30%, #a07b59, var(--brown-deep));
+  box-shadow: 0 6px 22px rgba(0, 0, 0, 0.45), 0 0 0 7px rgba(255, 250, 240, 0.22);
+  transition: transform 0.2s var(--ease);
+}
+.video-cover:hover .video-cover__play,
+.video-cover:focus-visible .video-cover__play,
+.video-cover__play--over:hover {
+  transform: scale(1.06);
+}
+/* מעל סרטון שהועלה (שעדיין בלי פקדים) — באמצע הנגן */
+.video-cover__play--over {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  translate: -50% -50%;
+  cursor: pointer;
 }
 
 /* ---------- התמונה המתחלפת בדף הבית ---------- */

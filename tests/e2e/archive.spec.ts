@@ -526,8 +526,9 @@ test('סרטון מקישור Google Drive', async ({ page }) => {
   await shot(page, '23-drive-form');
   await page.getByRole('button', { name: 'שמירה' }).click();
   await expect(page).toHaveURL(/\/item\//);
-  await expect(page.locator('.drive-frame iframe')).toHaveAttribute('src', `https://drive.google.com/file/d/${fileId}/preview`);
-  await expect(page.getByRole('link', { name: 'פתיחה ב-Google Drive' })).toHaveAttribute('href', `https://drive.google.com/file/d/${fileId}/view`);
+  // דף הסרטון: שער עם Play של האתר — פותח את הצופה של Google Drive (בלי הנגן המוטמע בעמוד)
+  await expect(page.locator('.video-wrap iframe')).toHaveCount(0);
+  await expect(page.getByRole('link', { name: /ניגון הסרטון/ })).toHaveAttribute('href', `https://drive.google.com/file/d/${fileId}/view`);
   await expect(page.getByRole('link', { name: /הורדת קובץ המקור/ })).toHaveCount(0);
   await shot(page, '24-drive-video-page');
   // החלפת הקישור בעריכה
@@ -535,7 +536,7 @@ test('סרטון מקישור Google Drive', async ({ page }) => {
   await page.getByRole('button', { name: 'עריכה' }).click();
   await page.getByLabel('קישור ל-Google Drive').fill(`https://drive.google.com/open?id=${newId}`);
   await page.locator('dialog').getByRole('button', { name: 'שמירה' }).click();
-  await expect(page.locator('.drive-frame iframe')).toHaveAttribute('src', `https://drive.google.com/file/d/${newId}/preview`);
+  await expect(page.getByRole('link', { name: /ניגון הסרטון/ })).toHaveAttribute('href', `https://drive.google.com/file/d/${newId}/view`);
   // מופיע ברשימת הסרטונים לצד הסרטון שהועלה כקובץ
   await page.goto('/c/video');
   await expect(page.locator('.media-card')).toHaveCount(2);
@@ -681,31 +682,41 @@ test('סרטונים: לחיצה מעבירה לדף הסרטון, ניגון ר
   expect(m.fit).toBe('contain');
   expect(Math.abs(m.ratio - m.natural)).toBeLessThan(0.03);
   expect(m.right).toBeLessThanOrEqual(m.vw);
-  // לא מתנגן מעצמו — רק אחרי לחיצה על Play
+  // לא מתנגן מעצמו, ועד הלחיצה אין פקדי נגן — רק כפתור Play אחד של האתר
   await page.waitForTimeout(1000);
-  expect(await video.evaluate((v: HTMLVideoElement) => ({ paused: v.paused, t: v.currentTime, auto: v.autoplay }))).toEqual({ paused: true, t: 0, auto: false });
+  expect(await video.evaluate((v: HTMLVideoElement) => ({ paused: v.paused, t: v.currentTime, auto: v.autoplay, controls: v.controls }))).toEqual({ paused: true, t: 0, auto: false, controls: false });
+  await expect(page.getByRole('button', { name: 'ניגון הסרטון' })).toHaveCount(1);
   await shot(page, '27-video-page');
-  await video.evaluate((v: HTMLVideoElement) => v.play());
-  await expect.poll(() => video.evaluate((v: HTMLVideoElement) => !v.paused && v.currentTime > 0)).toBe(true);
-  await video.evaluate((v: HTMLVideoElement) => v.pause());
-  await page.getByRole('button', { name: 'צפייה במסך מלא' }).click();
+  // Play — הסרטון מתנגן במסך מלא של הנגן עצמו (פקדים אחד, יחס מקורי)
+  await page.getByRole('button', { name: 'ניגון הסרטון' }).click();
   await expect.poll(() => page.evaluate(() => document.fullscreenElement?.tagName ?? null)).toBe('VIDEO');
+  await expect.poll(() => video.evaluate((v: HTMLVideoElement) => !v.paused && v.currentTime > 0)).toBe(true);
+  expect(await video.evaluate((v: HTMLVideoElement) => [v.controls, getComputedStyle(v).objectFit])).toEqual([true, 'contain']);
+  await expect(page.getByRole('button', { name: 'ניגון הסרטון' })).toHaveCount(0);
+  // יציאה ממסך מלא — חוזרים לדף הסרטון, והנגן נשאר בו עם פקדים
   await page.evaluate(() => document.exitFullscreen());
+  await expect.poll(() => page.evaluate(() => document.fullscreenElement)).toBeNull();
+  await expect(page).toHaveURL(/\/item\//);
+  await video.evaluate((v: HTMLVideoElement) => v.pause());
 
   // סרטון Google Drive — לחיצה בגלריה מעבירה לדף הסרטון, עם הנגן המוטמע (שמחכה ללחיצה על Play)
   await page.goto('/c/video');
   await page.locator('.media-card[data-source="drive"]').first().click();
   await expect(page).toHaveURL(/\/item\//);
-  const iframe = page.locator('.drive-frame iframe');
-  await expect(iframe).toBeVisible();
-  expect(await iframe.getAttribute('src')).toMatch(/\/preview$/);
-  expect(await iframe.getAttribute('allowfullscreen')).not.toBeNull();
-  expect(await page.evaluate(() => document.fullscreenElement)).toBeNull();
-  await expect(page.getByRole('link', { name: 'פתיחה ב-Google Drive' })).toHaveAttribute('href', /drive\.google\.com/);
-  await page.getByRole('button', { name: 'צפייה במסך מלא' }).click();
-  await expect.poll(() => page.evaluate(() => document.fullscreenElement?.className ?? null)).toContain('drive-frame');
-  await page.evaluate(() => document.exitFullscreen());
-  await expect(page.getByRole('link', { name: 'פתיחה ב-Google Drive' })).toBeVisible();
+  // בלי הנגן המוטמע בעמוד: שער ביחס המקורי עם Play אחד של האתר, שפותח את הצופה של Google Drive (כמו החץ)
+  await expect(page.locator('.video-wrap iframe')).toHaveCount(0);
+  const playLink = page.getByRole('link', { name: /ניגון הסרטון/ });
+  await expect(playLink).toHaveCount(1);
+  await expect(playLink).toHaveAttribute('href', /^https:\/\/drive\.google\.com\/file\/d\/[^/]+\/view$/);
+  await expect(playLink).toHaveAttribute('target', '_blank');
+  await page.context().route('https://drive.google.com/file/**', (r) => r.fulfill({ contentType: 'text/html', body: '<title>Drive</title>' }));
+  const [popup] = await Promise.all([page.waitForEvent('popup'), playLink.click()]);
+  await popup.waitForLoadState();
+  expect(popup.url()).toMatch(/drive\.google\.com\/file\/d\/.+\/view/);
+  await popup.close();
+  // הדף המקורי נשאר במקומו
+  await expect(page).toHaveURL(/\/item\//);
+  await expect(playLink).toBeVisible();
 });
 
 test('יצירת ממוזערות למסמכים שהם תמונות — המקור לא משתנה', async ({ page }) => {
@@ -1332,12 +1343,29 @@ test.describe('Chrome באנדרואיד (אמולציה)', () => {
     const ua = await page.evaluate(() => navigator.userAgent);
     expect(ua).toContain('Android');
 
-    // סרטון Google Drive — דף הסרטון עם הנגן המוטמע, בלי מסך מלא כפוי
-    await page.locator('.media-card[data-source="drive"]').first().click();
-    await expect(page).toHaveURL(/\/item\//);
-    await expect(page.locator('.drive-frame iframe')).toBeVisible();
-    expect(await page.evaluate(() => document.fullscreenElement)).toBeNull();
-    await page.screenshot({ path: path.join(SHOTS, '35-android-drive-page.png') });
+    // סרטון Google Drive — דף הסרטון: שער ביחס המקורי (אנכי ואופקי) עם Play של האתר, בלי מסך מלא כפוי
+    const vids = ((await (await page.request.get('/api/items?kind=video&limit=50')).json()) as { items: { externalVideo: { fileId: string } | null }[] }).items;
+    const driveId = vids.find((x) => x.externalVideo)!.externalVideo!.fileId;
+    for (const [ratio, name] of [[9 / 16, 'portrait'], [16 / 9, 'landscape']] as const) {
+      await page.evaluate(([id, r]) => localStorage.setItem(`saba:drive-ratio:${id}`, String(r)), [driveId, ratio] as const);
+      await page.goto('/c/video');
+      await page.locator('.media-card[data-source="drive"]').first().click();
+      await expect(page).toHaveURL(/\/item\//);
+      const cover = page.getByRole('link', { name: /ניגון הסרטון/ });
+      await expect(cover).toBeVisible();
+      const b = await cover.evaluate((el) => {
+        const r = el.getBoundingClientRect();
+        return { w: r.width, h: r.height, vw: innerWidth, vh: innerHeight };
+      });
+      expect(Math.abs(b.w / b.h - ratio)).toBeLessThan(0.03);
+      expect(b.w).toBeLessThanOrEqual(b.vw);
+      expect(b.h).toBeLessThanOrEqual(b.vh);
+      if (ratio > 1) expect(b.w).toBeGreaterThan(b.vw * 0.85);
+      else expect(b.h).toBeGreaterThan(b.vh * 0.5);
+      await expect(page.locator('.video-wrap iframe')).toHaveCount(0);
+      expect(await page.evaluate(() => document.fullscreenElement)).toBeNull();
+      await page.screenshot({ path: path.join(SHOTS, `35-android-drive-${name}.png`) });
+    }
     // ״חזרה״ של הטלפון — חזרה לארכיון
     await page.goBack();
     await expect(page).toHaveURL(/\/c\/video$/);
@@ -1350,6 +1378,12 @@ test.describe('Chrome באנדרואיד (אמולציה)', () => {
     await page.waitForTimeout(800);
     expect(await v.evaluate((el: HTMLVideoElement) => el.paused)).toBe(true);
     expect(await page.evaluate(() => document.fullscreenElement)).toBeNull();
+    // Play — מסך מלא של הנגן; ״חזרה״/יציאה מחזירה לדף הסרטון
+    await page.getByRole('button', { name: 'ניגון הסרטון' }).click();
+    await expect.poll(() => page.evaluate(() => document.fullscreenElement?.tagName ?? null)).toBe('VIDEO');
+    await page.evaluate(() => document.exitFullscreen());
+    await expect(page).toHaveURL(/\/item\//);
+    await v.evaluate((el: HTMLVideoElement) => el.pause());
     await page.goBack();
     await expect(page).toHaveURL(/\/c\/video$/);
 
