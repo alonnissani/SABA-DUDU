@@ -45,7 +45,8 @@
   --safe-t: env(safe-area-inset-top, 0px);
 
   /* מרקם נייר עדין — רעש SVG מקומי, ללא קבצים חיצוניים */
-  --paper-noise: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='220' height='220'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.85' numOctaves='3' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 .36 0 0 0 0 .26 0 0 0 0 .16 0 0 0 .07 0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+  /* מרקם נייר — תמונה קבועה (נוצרת ב-scripts/generate-textures.mjs); פילטר SVG חי היה כבד מאוד בגלילה */
+  --paper-noise: url('../assets/paper.webp');
 }
 
 *,
@@ -68,14 +69,21 @@ body {
   line-height: 1.6;
   color: var(--ink);
   background-color: var(--paper);
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+  -webkit-tap-highlight-color: transparent;
+}
+/* רקע הדף בשכבה קבועה משלה — מורכב פעם אחת ולא מצויר מחדש בכל גלילה (background-attachment: fixed היה כבד בטלפונים) */
+body::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
   background-image:
     var(--paper-noise),
     radial-gradient(120% 80% at 50% -10%, #fbf5ea 0%, rgba(251, 245, 234, 0) 60%),
     radial-gradient(90% 60% at 50% 120%, rgba(176, 138, 69, 0.1) 0%, rgba(176, 138, 69, 0) 70%);
-  background-attachment: fixed;
-  -webkit-font-smoothing: antialiased;
-  text-rendering: optimizeLegibility;
-  -webkit-tap-highlight-color: transparent;
 }
 
 h1,
@@ -396,13 +404,10 @@ select {
     transform: rotate(360deg);
   }
 }
-@keyframes shimmer {
-  from {
-    background-position: 150% 0;
-  }
-  to {
-    background-position: -50% 0;
-  }
+/* שלד טעינה — שקיפות בלבד (רצה על כרטיס המסך, בלי ציור מחדש) */
+@keyframes skeleton-pulse {
+  from { opacity: 0.25; }
+  to { opacity: 0.85; }
 }
 
 @media (prefers-reduced-motion: reduce) {

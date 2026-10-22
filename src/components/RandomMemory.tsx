@@ -140,16 +140,18 @@ function MemoryPhoto({ item }: { item: ItemSummary }) {
   if (!src) return icon;
   return (
     <span className="memory__media memory__media--photo memory__media--fit">
-      <SafeImg
-        src={src}
-        srcSet={thumb && full ? `${thumb} 800w, ${full} 2400w` : undefined}
-        sizes="(min-width: 760px) 720px, 100vw"
-        width={o?.width ?? undefined}
-        height={o?.height ?? undefined}
-        alt=""
-        decoding="async"
-        fallback={icon}
-      />
+      {/* בטלפון — הממוזערת (800px) מספיקה לרוחב המסך וקלה בהרבה; במחשב — התצוגה הגדולה */}
+      <picture>
+        {thumb && full && <source media="(min-width: 760px)" srcSet={full} />}
+        <SafeImg
+          src={src}
+          width={o?.width ?? undefined}
+          height={o?.height ?? undefined}
+          alt=""
+          decoding="async"
+          fallback={icon}
+        />
+      </picture>
     </span>
   );
 }

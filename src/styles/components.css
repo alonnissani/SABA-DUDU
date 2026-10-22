@@ -122,8 +122,7 @@
   width: min(820px, calc(100vw - 24px));
 }
 .modal::backdrop {
-  background: rgba(45, 30, 18, 0.45);
-  backdrop-filter: blur(2px);
+  background: rgba(45, 30, 18, 0.5);
 }
 .modal__inner {
   display: flex;
@@ -524,10 +523,14 @@ a.card:hover {
   opacity: 0;
   transition: opacity 0.35s ease;
 }
-/* שלד טעינה עד שהתמונה מוכנה */
-.photo-tile__img:not(.is-loaded) {
-  background: linear-gradient(90deg, var(--paper-deep) 0%, #f8efde 50%, var(--paper-deep) 100%) 0 0 / 200% 100%;
-  animation: shimmer 1.4s linear infinite;
+/* שלד טעינה עד שהתמונה מוכנה — הבהוב שקיפות בלבד, שרץ על כרטיס המסך
+   (אנימציית background-position צוירה מחדש כל הזמן, גם לתמונות מחוץ למסך, והכבידה על הטלפון) */
+.photo-tile__img:not(.is-loaded)::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: #f8efde;
+  animation: skeleton-pulse 1.4s ease-in-out infinite alternate;
 }
 .photo-tile__img.is-loaded img {
   opacity: 1;
@@ -731,15 +734,19 @@ button.media-card:hover {
   flex-direction: column;
   gap: 12px;
 }
-/* שכבת הריחוף — תנועה עדינה למעלה ולמטה, לכל כרטיס בקצב משלו */
+/* ריחוף עדין של הלוח — כל עמודה בקצב משלה. אנימציה לכל עמודה (ולא לכל כרטיס) — כמה שכבות בודדות
+   במקום עשרות, כדי שהגלילה בטלפון תישאר חלקה */
+.story-board__col {
+  animation: story-bob 7s ease-in-out infinite alternate;
+}
+.story-board__col:nth-child(2) { animation-duration: 9s; animation-delay: -3s; animation-direction: alternate-reverse; }
+.story-board__col:nth-child(3) { animation-duration: 8s; animation-delay: -5s; }
 .story-float {
   margin-top: var(--mt, 0);
-  animation: story-bob var(--bob-dur, 8s) ease-in-out var(--bob-delay, 0s) infinite alternate;
-  will-change: transform;
 }
 @keyframes story-bob {
   from { transform: translateY(0); }
-  to { transform: translateY(var(--bob-y, -4px)); }
+  to { transform: translateY(-4px); }
 }
 .story-card--float {
   gap: 5px;
@@ -912,7 +919,7 @@ a.story-card--float:focus-visible {
   .story-card--quote .story-card__excerpt { font-size: 1.06rem; }
 }
 @media (prefers-reduced-motion: reduce) {
-  .story-float,
+  .story-board__col,
   .story-card--float {
     animation: none;
     transition: none;
@@ -1229,8 +1236,6 @@ a.story-card--float:focus-visible {
   z-index: 150;
   /* רקע כהה ועדין בגוון חום, לא שחור */
   background: radial-gradient(ellipse at 50% 40%, rgba(52, 38, 27, 0.97), rgba(22, 16, 11, 0.98));
-  -webkit-backdrop-filter: blur(6px);
-  backdrop-filter: blur(6px);
   color: #f5ecdc;
   display: grid;
   grid-template-rows: auto 1fr auto;

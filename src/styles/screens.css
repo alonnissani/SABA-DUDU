@@ -7,9 +7,8 @@
   top: 0;
   z-index: 40;
   padding-top: var(--safe-t);
-  background: rgba(245, 236, 220, 0.88);
-  backdrop-filter: saturate(1.2) blur(12px);
-  -webkit-backdrop-filter: saturate(1.2) blur(12px);
+  /* בלי backdrop-filter — טשטוש שמחושב בכל פריים של גלילה תוקע טלפונים */
+  background: rgba(245, 236, 220, 0.97);
   border-bottom: 1px solid var(--line);
 }
 .topbar__inner {
@@ -124,9 +123,7 @@
   bottom: 0;
   height: calc(var(--tabbar-h) + var(--safe-b));
   padding-bottom: var(--safe-b);
-  background: rgba(253, 248, 239, 0.94);
-  backdrop-filter: saturate(1.2) blur(14px);
-  -webkit-backdrop-filter: saturate(1.2) blur(14px);
+  background: rgba(253, 248, 239, 0.98);
   border-top: 1px solid var(--line);
   box-shadow: 0 -6px 20px rgba(70, 45, 20, 0.06);
 }
@@ -370,7 +367,7 @@
 }
 .mem__drift {
   display: block;
-  animation: mem-drift var(--drift-dur, 14s) ease-in-out var(--drift-delay, 0s) infinite var(--drift-dir, normal);
+  /* התנועה — Web Animations ב-FloatingMemories.tsx */
   will-change: transform;
 }
 .mem__img {
@@ -379,7 +376,6 @@
   height: auto;
   opacity: var(--o, 1);
   filter: drop-shadow(0 4px 6px rgba(94, 67, 48, 0.22));
-  animation: mem-sway var(--sway-dur, 8s) ease-in-out var(--sway-delay, 0s) infinite alternate;
   will-change: transform;
   user-select: none;
 }
@@ -404,24 +400,6 @@
 }
 @media (max-height: 640px) and (max-width: 799px) {
   .orbit { --m: clamp(34px, 10.5vw, 48px); }
-}
-/* מסלול סגור ולא סימטרי עם שינויי כיוון — כל אלמנט עם טווח, משך וכיוון משלו */
-@keyframes mem-drift {
-  0%,
-  100% { transform: translate(0, 0); }
-  17% { transform: translate(calc(var(--dx) * var(--ampx) * var(--ax, 1) * 0.9), calc(var(--dy) * var(--ampy) * var(--ay, 1) * -0.4)); }
-  34% { transform: translate(calc(var(--dx) * var(--ampx) * var(--ax, 1) * 0.4), calc(var(--dy) * var(--ampy) * var(--ay, 1) * -1)); }
-  51% { transform: translate(calc(var(--dx) * var(--ampx) * var(--ax, 1) * -0.5), calc(var(--dy) * var(--ampy) * var(--ay, 1) * -0.6)); }
-  68% { transform: translate(calc(var(--dx) * var(--ampx) * var(--ax, 1) * -1), calc(var(--dy) * var(--ampy) * var(--ay, 1) * 0.2)); }
-  85% { transform: translate(calc(var(--dx) * var(--ampx) * var(--ax, 1) * -0.3), calc(var(--dy) * var(--ampy) * var(--ay, 1) * 0.7)); }
-}
-@keyframes mem-sway {
-  from { transform: rotate(calc(var(--rot) * -1)) scale(0.97); }
-  to { transform: rotate(var(--rot)) scale(1.04); }
-}
-@media (prefers-reduced-motion: reduce) {
-  .mem__drift,
-  .mem__img { animation: none; }
 }
 
 .landing__cta {
@@ -674,6 +652,9 @@
   width: fit-content;
   max-width: 100%;
 }
+.memory__media--fit picture {
+  display: contents;
+}
 .memory__media--fit img {
   display: block;
   width: auto;
@@ -768,8 +749,8 @@
 .memory__skeleton {
   height: 260px;
   border-radius: var(--r-md);
-  background: linear-gradient(90deg, var(--paper-deep) 0%, #f8efde 50%, var(--paper-deep) 100%) 0 0 / 200% 100%;
-  animation: shimmer 1.4s linear infinite;
+  background: var(--paper-deep);
+  animation: skeleton-pulse 1.4s ease-in-out infinite alternate;
 }
 .memory--empty {
   text-align: center;

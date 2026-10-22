@@ -68,13 +68,8 @@ export function StoryBoard({ items }: { items: ItemSummary[] }) {
               len > 180 ? 'story-card--long' : '',
             ].join(' ');
             const tilt = { '--tilt': `${TILTS[h % TILTS.length]}deg` } as CSSProperties;
-            // ריחוף עדין: לכל כרטיס משך, השהיה וכיוון משלו; מרווח עליון משתנה לפיזור
-            const float = {
-              '--mt': `${((h >>> 9) % 3) * 5}px`,
-              '--bob-dur': `${6 + ((h >>> 12) % 5)}s`,
-              '--bob-delay': `-${(h >>> 15) % 7}s`,
-              '--bob-y': `${(h >>> 18) % 2 ? -4 : 4}px`,
-            } as CSSProperties;
+            // מרווח עליון משתנה לפיזור (הריחוף עצמו — לכל עמודה, ב-CSS)
+            const float = { '--mt': `${((h >>> 9) % 3) * 5}px` } as CSSProperties;
             return (
               <div key={it.id} className="story-float" style={float}>
                 <StoryCard item={it} className={classes} style={tilt} />

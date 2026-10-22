@@ -1033,7 +1033,7 @@ test('סרטונים, הקלטות וסיפורים: סדר אקראי בכל כ
     const fonts = els.flatMap((e) => Array.from(e.querySelectorAll('.story-card__title, .story-card__excerpt')).map((t) => parseFloat(getComputedStyle(t).fontSize)));
     const tilts = new Set(els.map((e) => (e as HTMLElement).style.getPropertyValue('--tilt')));
     const maxRight = Math.max(...boxes.map((b) => b.r)), minLeft = Math.min(...boxes.map((b) => b.l));
-    return { overlap, minFont: Math.min(...fonts), tilts: tilts.size, inside: minLeft >= 0 && maxRight <= innerWidth, bob: getComputedStyle(els[0].parentElement!).animationName };
+    return { overlap, minFont: Math.min(...fonts), tilts: tilts.size, inside: minLeft >= 0 && maxRight <= innerWidth, bob: getComputedStyle(els[0].closest('.story-board__col')!).animationName };
   });
   expect(layout.overlap).toBeLessThan(6);
   expect(layout.minFont).toBeGreaterThanOrEqual(12);
@@ -1166,14 +1166,16 @@ test('מסך פתיחה: זיכרונות מרחפים, לא חוסמים, וח�
     await expect(back).toHaveAttribute('href', '/');
     await expect(back.locator('.avatar')).toHaveCSS('width', '42px');
   }
-  const delays = async () => page.locator('.mem').evaluateAll((els) => els.map((e) => (e as HTMLElement).style.getPropertyValue('--drift-delay')).join(','));
+  const delays = async () => page.locator('.mem__drift').evaluateAll((els) => els.map((e) => String(e.getAnimations()[0]?.effect?.getTiming().delay ?? '')).join(','));
   await page.locator('.topbar__back').click();
   await expect(page).toHaveURL(/\/$/);
   const mems = page.locator('.mem img');
   await expect(mems).toHaveCount(7);
   await expect.poll(() => mems.evaluateAll((els) => els.filter((e) => (e as HTMLImageElement).naturalWidth > 0).length)).toBe(7);
   // התמונות שקופות (WebP עם alpha) ומונפשות ב-transform
-  expect(await page.locator('.mem__drift').first().evaluate((e) => getComputedStyle(e).animationName)).toBe('mem-drift');
+  // התנועה — Web Animations (רצות על כרטיס המסך), לכל זיכרון תנועת מסלול ונדנוד
+  expect(await page.locator('.mem__drift').evaluateAll((els) => els.every((e) => e.getAnimations().length === 1))).toBe(true);
+  expect(await page.locator('.mem__img').evaluateAll((els) => els.every((e) => e.getAnimations().length === 1))).toBe(true);
   expect(await page.locator('.orbit__layer').evaluate((e) => getComputedStyle(e).pointerEvents)).toBe('none');
   // התנועה מורגשת כבר בשניות הראשונות
   const centers = () => mems.evaluateAll((els) => els.map((e) => {
@@ -1295,8 +1297,9 @@ test.describe('מסך פתיחה עם הפחתת תנועה', () => {
   test('prefers-reduced-motion — האלמנטים נשארים במקומם', async ({ page }) => {
     await page.goto('/');
     await expect(page.locator('.mem')).toHaveCount(7);
-    expect(await page.locator('.mem__drift').first().evaluate((e) => getComputedStyle(e).animationName)).toBe('none');
-    expect(await page.locator('.mem__img').first().evaluate((e) => getComputedStyle(e).animationName)).toBe('none');
+    await page.waitForTimeout(300);
+    expect(await page.locator('.mem__drift').evaluateAll((els) => els.reduce((n, e) => n + e.getAnimations().length, 0))).toBe(0);
+    expect(await page.locator('.mem__img').evaluateAll((els) => els.reduce((n, e) => n + e.getAnimations().length, 0))).toBe(0);
   });
 });
 
