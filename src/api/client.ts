@@ -130,6 +130,8 @@ export const api = {
   restore: (id: string) => post(`/items/${id}/restore`),
   comment: (id: string, body: string, kind: 'comment' | 'memory') => post(`/items/${id}/comments`, { body, kind }),
   removeComment: (id: string) => del(`/comments/${id}`),
+  /** ״גם אני זוכר את זה״ — סימון או ביטול הסימון */
+  remember: (id: string, on: boolean) => (on ? put<ItemDetail>(`/items/${id}/remember`, {}) : del<ItemDetail>(`/items/${id}/remember`)),
   random: (exclude: string[], kind?: 'story') => get<{ item: ItemSummary | null; total: number }>(`/random${qs({ exclude: exclude.join(','), kind })}`),
   saveWaveform: (id: string, waveform: number[]) => put(`/items/${id}/waveform`, { waveform }),
   search: (q: string, kind?: ItemKind) => get<SearchResults>(`/search${qs({ q, kind })}`),

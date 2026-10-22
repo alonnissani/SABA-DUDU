@@ -1,6 +1,6 @@
 import { driveVirtualId } from '../../shared/drive';
 import type {
-  CommentInfo, ExternalVideo, FileInfo, FileRole, ItemDetail, ItemKind, ItemSummary, StoryType, TranscriptStatus,
+  CommentInfo, ExternalVideo, FileInfo, FileRole, ItemDetail, ItemKind, ItemSummary, PublicUser, StoryType, TranscriptStatus,
 } from '../../shared/types';
 import { placeholders } from './http';
 import { loadStoryImages } from './storyImages';
@@ -179,7 +179,7 @@ export async function getItemRow(db: D1Database, id: string): Promise<ItemRow | 
 
 export async function getItemDetail(db: D1Database, row: ItemRow, includeDeleted: boolean): Promise<ItemDetail> {
   const [summary] = await toSummaries(db, [row]);
-  const [linkRes, commentRes, transcript] = await db.batch([
+  const [linkRes, commentRes, transcript, rememberRes] = await db.batch([
     db.prepare(
       `${ITEM_SELECT} JOIN item_links l ON l.item_id = i.id WHERE l.story_id = ? ${includeDeleted ? '' : 'AND i.deleted_at IS NULL'}
        ORDER BY l.position`,
@@ -189,6 +189,9 @@ export async function getItemDetail(db: D1Database, row: ItemRow, includeDeleted
        JOIN users u ON u.id = c.created_by WHERE c.item_id = ? AND c.deleted_at IS NULL ORDER BY c.created_at`,
     ).bind(row.id),
     db.prepare('SELECT status FROM transcripts WHERE item_id = ?').bind(row.id),
+    db.prepare(
+      `SELECT u.id, u.name FROM item_remembers r JOIN users u ON u.id = r.user_id WHERE r.item_id = ? ORDER BY r.created_at`,
+    ).bind(row.id),
   ]);
   const comments: CommentInfo[] = (commentRes.results as Record<string, unknown>[]).map((c) => ({
     id: c.id as string,
@@ -205,6 +208,7 @@ export async function getItemDetail(db: D1Database, row: ItemRow, includeDeleted
     links: await toSummaries(db, linkRes.results as unknown as ItemRow[]),
     storyImages: row.kind === 'story' ? (await loadStoryImages(db, [row.id])).get(row.id) ?? [] : [],
     comments,
+    rememberedBy: rememberRes.results as unknown as PublicUser[],
     transcriptStatus: status,
   };
 }

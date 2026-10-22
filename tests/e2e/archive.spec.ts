@@ -320,10 +320,26 @@ test('סיפור עם צירוף ותמונה משלו, ״גם אני זוכר �
   await expect.poll(() => page.locator('.sheet__photo img').evaluate((el: HTMLImageElement) => el.naturalWidth)).toBeGreaterThan(0);
   // התמונה של הסיפור לא נוספה לגלריה
   expect(await galleryTotal()).toBe(before);
+  // ״גם אני זוכר את זה״ — סימון בלבד, בלי טופס תגובה; רואים מי סימן, ואפשר לבטל
+  const remember = page.getByRole('button', { name: 'גם אני זוכר את זה' });
+  await expect(remember).toHaveAttribute('aria-pressed', 'false');
+  await remember.click();
+  await expect(remember).toHaveAttribute('aria-pressed', 'true');
+  await expect(page.locator('.comment-form')).toHaveCount(0);
+  await expect(page.locator('.remembers')).toContainText('אני');
+  await page.reload();
+  await expect(page.getByRole('button', { name: 'גם אני זוכר את זה' })).toHaveAttribute('aria-pressed', 'true');
+  await expect(page.locator('.remembers')).toContainText('אני');
   await page.getByRole('button', { name: 'גם אני זוכר את זה' }).click();
-  await page.getByLabel('מה את/ה זוכר/ת?').fill('נכון! ואז סבתא תמיד גלגלה עיניים.');
+  await expect(page.getByRole('button', { name: 'גם אני זוכר את זה' })).toHaveAttribute('aria-pressed', 'false');
+  await expect(page.locator('.remembers')).toHaveCount(0);
+  await page.getByRole('button', { name: 'גם אני זוכר את זה' }).click();
+  await expect(page.locator('.remembers')).toBeVisible();
+  // תגובה כתובה — עדיין אפשרית בנפרד
+  await page.getByRole('button', { name: 'הוספת תגובה' }).click();
+  await page.getByLabel('תגובה').fill('נכון! ואז סבתא תמיד גלגלה עיניים.');
   await page.getByRole('button', { name: 'פרסום' }).click();
-  await expect(page.locator('.comment--memory')).toBeVisible();
+  await expect(page.locator('.comment')).toContainText('סבתא תמיד גלגלה עיניים');
   await shot(page, '12-story-page');
 });
 
@@ -824,6 +840,12 @@ test('בן משפחה מוזמן — אין לו אפשרות מחיקה, והש
   await expect(member.getByRole('button', { name: 'מחיקה' })).toHaveCount(0);
   await expect(member.getByRole('button', { name: 'עריכה' })).toHaveCount(0);
   const id = member.url().split('/item/')[1];
+  // בן המשפחה מסמן ״גם אני זוכר את זה״ — ושאר המשפחה רואה מי סימן
+  await member.getByRole('button', { name: 'גם אני זוכר את זה' }).click();
+  await expect(member.locator('.remembers')).toContainText('אני');
+  await page.goto(`/item/${id}`);
+  await expect(page.locator('.remembers')).toContainText('נכדה');
+  await page.locator('.remembers').screenshot({ path: path.join(SHOTS, '12b-remembers.png') });
   const res = await member.request.delete(`/api/items/${id}`, { headers: { origin: new URL(member.url()).origin } });
   expect(res.status()).toBe(403);
   // סרטונים ומסמכים — גם כאן אין מחיקה

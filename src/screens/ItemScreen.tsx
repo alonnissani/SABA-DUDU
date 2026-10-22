@@ -1,4 +1,4 @@
-import { useState, type FormEvent } from 'react';
+import { useEffect, useState, type FormEvent } from 'react';
 import { Link, useNavigate, useParams } from 'react-router';
 import type { ItemDetail, ItemSummary, StoryImage, StoryType } from '../../shared/types';
 import { KIND_LABELS, STORY_TYPES, STORY_TYPE_LABEL, formatBytes } from '../../shared/constants';
@@ -330,9 +330,31 @@ function LinkedItems({ item }: { item: ItemDetail }) {
 }
 
 function Comments({ item, onAdded }: { item: ItemDetail; onAdded: () => void }) {
-  const { isAdmin } = useApp();
+  const { isAdmin, user } = useApp();
   const toast = useToast();
-  const [mode, setMode] = useState<'memory' | 'comment' | null>(null);
+  const [mode, setMode] = useState<'comment' | null>(null);
+  // ״גם אני זוכר את זה״ — סימון בלבד (כמו לייק), בלי תגובה כתובה
+  const [remembered, setRemembered] = useState(item.rememberedBy);
+  const [rememberBusy, setRememberBusy] = useState(false);
+  useEffect(() => setRemembered(item.rememberedBy), [item.rememberedBy]);
+  const iRemember = remembered.some((u) => u.id === user?.id);
+  const toggleRemember = async () => {
+    if (!user) return;
+    const on = !iRemember;
+    const before = remembered;
+    // עדכון מיידי במסך; אם השמירה נכשלה — חוזרים למצב הקודם
+    setRemembered(on ? [...before, { id: user.id, name: user.name }] : before.filter((u) => u.id !== user.id));
+    setRememberBusy(true);
+    try {
+      const detail = await api.remember(item.id, on);
+      setRemembered(detail.rememberedBy);
+    } catch (err) {
+      setRemembered(before);
+      toast((err as Error).message, 'error');
+    } finally {
+      setRememberBusy(false);
+    }
+  };
   const [text, setText] = useState('');
   const [busy, setBusy] = useState(false);
   const isStory = item.kind === 'story';
@@ -345,7 +367,7 @@ function Comments({ item, onAdded }: { item: ItemDetail; onAdded: () => void }) 
       await api.comment(item.id, text.trim(), mode);
       setText('');
       setMode(null);
-      toast(mode === 'memory' ? 'הזיכרון שלך נוסף' : 'התגובה נוספה');
+      toast('התגובה נוספה');
       onAdded();
     } catch (err) {
       toast((err as Error).message, 'error');
@@ -369,6 +391,14 @@ function Comments({ item, onAdded }: { item: ItemDetail; onAdded: () => void }) 
         {isStory ? 'זיכרונות ותגובות מהמשפחה' : 'תגובות וזיכרונות'}
         {item.comments.length > 0 && <span className="count">{item.comments.length}</span>}
       </h2>
+      {remembered.length > 0 && (
+        <p className="remembers" aria-live="polite">
+          <Icon name="heart" size={16} />
+          <span>
+            {remembered.length > 1 ? `${remembered.length} זוכרים את זה:` : 'זוכר/ת את זה:'} <strong>{remembered.map((u) => (u.id === user?.id ? 'אני' : u.name)).join(', ')}</strong>
+          </span>
+        </p>
+      )}
       {item.comments.length === 0 && !mode && <p className="muted">עוד אין תגובות. אולי גם לך יש מה להוסיף?</p>}
       <ul className="comment-list">
         {item.comments.map((c) => (
@@ -394,8 +424,8 @@ function Comments({ item, onAdded }: { item: ItemDetail; onAdded: () => void }) 
       {!item.deletedAt &&
         (mode ? (
           <form className="form comment-form" onSubmit={submit}>
-            <Field label={mode === 'memory' ? 'מה את/ה זוכר/ת?' : 'תגובה'}>
-              <textarea autoFocus rows={4} value={text} onChange={(e) => setText(e.target.value)} required placeholder={mode === 'memory' ? 'גם אני זוכר את זה… ספרו מה אתם זוכרים' : ''} />
+            <Field label="תגובה">
+              <textarea autoFocus rows={4} value={text} onChange={(e) => setText(e.target.value)} required />
             </Field>
             <div className="form__actions">
               <button type="button" className="btn btn--ghost" onClick={() => setMode(null)}>
@@ -408,7 +438,12 @@ function Comments({ item, onAdded }: { item: ItemDetail; onAdded: () => void }) 
           </form>
         ) : (
           <div className="comment-cta">
-            <button className="btn btn--primary" onClick={() => setMode('memory')}>
+            <button
+              className={`btn ${iRemember ? 'btn--primary is-remembered' : 'btn--ghost'} remember-btn`}
+              onClick={toggleRemember}
+              disabled={rememberBusy}
+              aria-pressed={iRemember}
+            >
               <Icon name="heart" />
               גם אני זוכר את זה
             </button>

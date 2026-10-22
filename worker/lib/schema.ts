@@ -46,6 +46,15 @@ export function ensureSchema(db: D1Database): Promise<void> {
         )`,
       ),
       db.prepare('CREATE INDEX IF NOT EXISTS idx_story_images_story ON story_images(story_id, position)'),
+      // 0006_item_remembers.sql
+      db.prepare(
+        `CREATE TABLE IF NOT EXISTS item_remembers (
+          item_id    TEXT NOT NULL REFERENCES items(id),
+          user_id    TEXT NOT NULL REFERENCES users(id),
+          created_at INTEGER NOT NULL,
+          PRIMARY KEY (item_id, user_id)
+        )`,
+      ),
       // 0005_audio_peaks.sql
       db.prepare(
         `CREATE TABLE IF NOT EXISTS audio_peaks (

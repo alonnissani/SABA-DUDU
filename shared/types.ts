@@ -84,6 +84,8 @@ export interface ItemDetail extends ItemSummary {
   /** לסיפור: התמונות שלו, לפי הסדר (הראשונה — תמונת הסיפור) */
   storyImages: StoryImage[];
   comments: CommentInfo[];
+  /** מי סימן ״גם אני זוכר את זה״ (לפי סדר הסימון) */
+  rememberedBy: PublicUser[];
   transcriptStatus: TranscriptStatus;
 }
 

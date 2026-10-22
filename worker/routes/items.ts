@@ -328,7 +328,24 @@ itemRoutes.post('/items/:id/restore', async (c) => {
   return c.json({ ok: true });
 });
 
-/** תגובה או ״גם אני זוכר את זה״ — לכל משתמש מחובר. */
+/** ״גם אני זוכר את זה״ — סימון בלבד (בלי תגובה כתובה), ואפשר לבטל. לכל משתמש מחובר. */
+itemRoutes.put('/items/:id/remember', async (c) => {
+  const user = requireUser(c);
+  const row = await getItemRow(c.env.DB, c.req.param('id'));
+  if (!row || row.deleted_at) fail(404, 'הפריט לא נמצא');
+  await c.env.DB.prepare('INSERT OR IGNORE INTO item_remembers (item_id, user_id, created_at) VALUES (?, ?, ?)').bind(row.id, user.id, now()).run();
+  return c.json(await getItemDetail(c.env.DB, row, user.role === 'admin'));
+});
+
+itemRoutes.delete('/items/:id/remember', async (c) => {
+  const user = requireUser(c);
+  const row = await getItemRow(c.env.DB, c.req.param('id'));
+  if (!row || row.deleted_at) fail(404, 'הפריט לא נמצא');
+  await c.env.DB.prepare('DELETE FROM item_remembers WHERE item_id = ? AND user_id = ?').bind(row.id, user.id).run();
+  return c.json(await getItemDetail(c.env.DB, row, user.role === 'admin'));
+});
+
+/** תגובה כתובה — לכל משתמש מחובר. */
 itemRoutes.post('/items/:id/comments', async (c) => {
   const user = requireUser(c);
   const b = await readJson(c.req.raw);

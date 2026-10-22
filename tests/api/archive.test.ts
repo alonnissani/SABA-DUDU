@@ -387,6 +387,25 @@ describe('סיפורים, הגדרות וגיבוי', () => {
     expect(detail.tags).toEqual(['בדיחות']);
   });
 
+  it('״גם אני זוכר את זה״ — סימון (בלי תגובה), פעם אחת לכל אחד, אפשר לבטל, וכולם רואים מי סימן', async () => {
+    const admin = await setupAdmin();
+    const member = await inviteMember(admin);
+    const story = (await (await admin.post('/api/items', { kind: 'story', title: 'ס', body: 'ב', storyType: 'family' })).json()) as { id: string };
+    const who = async () => ((await (await admin.get(`/api/items/${story.id}`)).json()) as { rememberedBy: { name: string }[]; comments: unknown[] });
+    expect((await who()).rememberedBy).toEqual([]);
+    expect((await member.put(`/api/items/${story.id}/remember`, {})).status).toBe(200);
+    expect((await member.put(`/api/items/${story.id}/remember`, {})).status).toBe(200);
+    expect((await admin.put(`/api/items/${story.id}/remember`, {})).status).toBe(200);
+    const after = await who();
+    expect(after.rememberedBy.map((u) => u.name)).toEqual(['בן משפחה', 'מנהל']);
+    expect(after.comments).toHaveLength(0);
+    expect((await member.del(`/api/items/${story.id}/remember`)).status).toBe(200);
+    expect((await who()).rememberedBy.map((u) => u.name)).toEqual(['מנהל']);
+    expect((await new Client().put(`/api/items/${story.id}/remember`, {})).status).toBe(401);
+    await admin.del(`/api/items/${story.id}`);
+    expect((await member.put(`/api/items/${story.id}/remember`, {})).status).toBe(404);
+  });
+
   it('מנהל מחליף תמונה ראשית ומאפייני מסך פתיחה', async () => {
     const admin = await setupAdmin();
     const member = await inviteMember(admin);
