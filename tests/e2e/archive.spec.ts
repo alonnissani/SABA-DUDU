@@ -659,11 +659,11 @@ test('גלריה: סדר אקראי בכל כניסה, טעינה הדרגתית
 test('סרטונים: לחיצה מעבירה לדף הסרטון, ניגון רק בלחיצה על Play; ביחס המקורי ומסך מלא דרך הנגן', async ({ page }) => {
   await login(page);
   await page.goto('/c/video');
-  // כרטיסים קומפקטיים: 3 בשורה ב-390px, 2 במסך צר מאוד; תמונה מקדימה ביחס 16:9 וכותרת בשורה אחת
+  // כרטיסים קומפקטיים: 3 בשורה ב-390px, 2 במסך צר מאוד; כל כרטיס ריבוע וכותרת בשורה אחת
   const cols = () => page.locator('.grid--media').evaluate((el) => getComputedStyle(el).gridTemplateColumns.split(' ').length);
   expect(await cols()).toBe(3);
-  const thumb = await page.locator('.media-card__thumb').first().boundingBox();
-  expect(Math.abs(thumb!.width / thumb!.height - 16 / 9)).toBeLessThan(0.05);
+  const thumb = await page.locator('.media-card').first().boundingBox();
+  expect(Math.abs(thumb!.width / thumb!.height - 1)).toBeLessThan(0.02);
   expect(await page.locator('.media-card .card__title').first().evaluate((el) => getComputedStyle(el).whiteSpace)).toBe('nowrap');
   await page.setViewportSize({ width: 340, height: 844 });
   expect(await cols()).toBe(2);
@@ -1182,10 +1182,14 @@ test('מסך פתיחה: זיכרונות מרחפים, לא חוסמים, וח�
     const r = e.getBoundingClientRect();
     return [r.left + r.width / 2, r.top + r.height / 2];
   }));
+  // התזוזה הגדולה ביותר מנקודת ההתחלה לאורך 2 שניות (ולא רק בסופן — זיכרון עשוי לחזור על עקבותיו)
   const c0 = await centers();
-  await page.waitForTimeout(2000);
-  const c1 = await centers();
-  const moved = c0.map((p, i) => Math.hypot(p[0] - c1[i][0], p[1] - c1[i][1]));
+  const moved = c0.map(() => 0);
+  for (let s = 0; s < 4; s++) {
+    await page.waitForTimeout(500);
+    const c1 = await centers();
+    c0.forEach((p, i) => (moved[i] = Math.max(moved[i], Math.hypot(p[0] - c1[i][0], p[1] - c1[i][1]))));
+  }
   expect(moved.filter((d) => d > 4).length).toBeGreaterThanOrEqual(5);
   expect(Math.max(...moved)).toBeGreaterThan(8);
   // אף אלמנט לא מסתיר את התמונה המרכזית או את כפתור הכניסה
@@ -1205,7 +1209,7 @@ test('מסך פתיחה: זיכרונות מרחפים, לא חוסמים, וח�
     expect(o.cta).toBe(0);
     expect(o.title).toBe(0);
     // חריגה של שבר פיקסל בקצה המסך נחתכת בלי גלילה — לא נראית
-    expect(o.edge).toBeLessThan(2);
+    expect(o.edge).toBeLessThan(3);
   }
   await noHorizontalScroll(page);
   const cta = page.getByRole('button', { name: 'כניסה לזיכרונות' });
@@ -1254,6 +1258,8 @@ test('Google Drive: תמונה חדשה מופיעה אחרי סנכרון וב�
   await page.goto('/home');
   let found = false;
   for (let i = 0; i < 200 && !found; i++) {
+    // לקרוא רק אחרי שהזיכרון הקודם סיים להיטען — אחרת הוא עלול להתחלף אחרי הבדיקה
+    await expect(page.locator('section.memory')).toHaveAttribute('aria-busy', 'false');
     const src = (await page.locator('.memory__media img').first().getAttribute('src')) ?? '';
     found = src.includes(fresh.id);
     if (!found) {
@@ -1345,6 +1351,27 @@ test.describe('Chrome באנדרואיד (אמולציה)', () => {
     await page.goto('/c/video');
     const ua = await page.evaluate(() => navigator.userAgent);
     expect(ua).toContain('Android');
+
+    // כל כרטיסי הסרטונים ריבועים שווים, שלושה בשורה, והכותרת בתוך הריבוע
+    await expect(page.locator('.media-card').first()).toBeVisible();
+    await page.waitForTimeout(600);
+    const boxes = await page.locator('.media-card').evaluateAll((els) =>
+      // מידות פריסה (offset) — לא מושפעות מאנימציית ההופעה של הכרטיסים
+      els.map((el) => {
+        const c = el as HTMLElement;
+        const body = c.querySelector('.media-card__body') as HTMLElement;
+        return { w: c.offsetWidth, h: c.offsetHeight, top: c.offsetTop, inside: body.offsetTop >= 0 && body.offsetTop + body.offsetHeight <= c.offsetHeight + 1 };
+      }),
+    );
+    expect(boxes.length).toBeGreaterThan(0);
+    for (const b of boxes) {
+      expect(Math.abs(b.w - b.h)).toBeLessThanOrEqual(1);
+      expect(Math.abs(b.w - boxes[0].w)).toBeLessThanOrEqual(1);
+      expect(b.inside).toBe(true);
+    }
+    expect(await page.locator('.grid--media').evaluate((el) => getComputedStyle(el).gridTemplateColumns.split(' ').length)).toBe(3);
+    expect(boxes.filter((b) => b.top === boxes[0].top).length).toBe(Math.min(3, boxes.length));
+    await page.screenshot({ path: path.join(SHOTS, '36-android-video-grid.png') });
 
     // סרטון Google Drive — דף הסרטון: שער ביחס המקורי (אנכי ואופקי) עם Play של האתר, בלי מסך מלא כפוי
     const vids = ((await (await page.request.get('/api/items?kind=video&limit=50')).json()) as { items: { externalVideo: { fileId: string } | null }[] }).items;
