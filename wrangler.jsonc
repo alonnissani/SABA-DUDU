@@ -1,0 +1,40 @@
+/**
+ * הגדרות Cloudflare Workers עבור ״סבא דודו״.
+ * אין צורך במזהי משאבים: בפריסה הראשונה wrangler יוצר אוטומטית את בסיס הנתונים (D1)
+ * ואת אחסון הקבצים (R2) לפי השמות שכאן, ובפריסות הבאות משתמש באותם משאבים.
+ */
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "saba-dudu",
+  "main": "worker/index.ts",
+  "compatibility_date": "2025-09-01",
+  "compatibility_flags": ["nodejs_compat"],
+  "observability": { "enabled": true },
+
+  // ה-SPA מוגש כקבצים סטטיים; כל נתיב /api/* עובר קודם ל-Worker.
+  "assets": {
+    "not_found_handling": "single-page-application",
+    "run_worker_first": ["/api/*"]
+  },
+
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "saba-dudu-db",
+      "migrations_dir": "migrations"
+    }
+  ],
+
+  "r2_buckets": [
+    // אחסון קובצי המקור. ה-bucket פרטי — הגישה רק דרך ה-Worker אחרי התחברות.
+    { "binding": "MEDIA", "bucket_name": "saba-dudu-media" }
+    // גיבוי (אופציונלי, מומלץ): צרו bucket שני והסירו את ההערה מהשורה הבאה.
+    // ,{ "binding": "BACKUP", "bucket_name": "saba-dudu-backup" }
+  ],
+
+  // גיבוי לילי (02:00 UTC). פועל רק אם הוגדר BACKUP.
+  // 0 2 * * * — גיבוי לילי; 23 * * * * — סנכרון שעתי של תיקיית Google Drive
+  "triggers": { "crons": ["0 2 * * *", "23 * * * *"] }
+
+  // סודות (לא נשמרים בקוד): wrangler secret put SETUP_TOKEN, wrangler secret put GOOGLE_DRIVE_API_KEY
+}
